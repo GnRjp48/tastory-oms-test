@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1f3d2b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Tastory OMS" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="description"
+      content="Tastory OMS - mobile order management for a small granola business."
+    />
+    <title>Tastory OMS</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              forest: "#1f3d2b",
+              sage: "#dce8da",
+              cream: "#f8f5ed",
+              oat: "#eadfca",
+              cocoa: "#755744",
+              orange: "#e57e3d",
+              ink: "#243029",
+            },
+            boxShadow: {
+              soft: "0 12px 35px rgba(41, 54, 45, 0.09)",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="overflow-x-hidden bg-cream text-ink antialiased">
+    <div id="app" class="mx-auto min-h-screen max-w-3xl pb-28"></div>
+    <div id="toast-region" class="pointer-events-none fixed inset-x-4 top-4 z-[70]"></div>
+
+    <noscript>
+      <div class="m-6 rounded-2xl bg-white p-6 text-center shadow-soft">
+        Tastory OMS needs JavaScript enabled to manage orders.
+      </div>
+    </noscript>
+
+    <script src="app.js"></script>
+  </body>
+</html>

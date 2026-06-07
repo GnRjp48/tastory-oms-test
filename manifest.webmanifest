@@ -1,0 +1,42 @@
+{
+  "name": "Tastory OMS",
+  "short_name": "Tastory",
+  "description": "Mobile order management for Tastory granola orders.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8f5ed",
+  "theme_color": "#1f3d2b",
+  "categories": ["business", "productivity", "food"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/mobile-dashboard.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Tastory OMS dashboard"
+    },
+    {
+      "src": "screenshots/desktop-dashboard.png",
+      "sizes": "1440x1000",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Tastory OMS desktop dashboard"
+    }
+  ]
+}
