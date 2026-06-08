@@ -12,6 +12,11 @@ A mobile-first, single-page order management system for Tastory, a small home-ba
 - Customer notes for preferences like less sweet, no raisins, call before delivery, or leave at guard house
 - WhatsApp button on every order card
 - One-tap production workflow progression
+- Dashboard order overview for today's total, pending, in-progress, completed, and cancelled orders
+- Simplified daily order summary page
+- Export today's orders to an Excel `.xlsx` file
+- Optional auto-export folder using supported browser folder permissions
+- Pricing management for editing products, packaging sizes, and prices without changing code
 - Searchable and filterable order list
 - Order details, editing, deletion, and quick production status updates
 - Production summary by product, pack size, and workflow stage
@@ -35,6 +40,12 @@ Menu > Add to Home screen > Install
 ```
 
 The PWA manifest and service worker are included, so Chrome can install Tastory OMS as a standalone app.
+
+## Export Notes
+
+`Export to Excel` creates `DailyOrders_YYYY-MM-DD.xlsx` for orders created today.
+
+`Auto Export` uses the browser File System Access API when available. If the browser does not support default folder permissions, Tastory OMS falls back to a normal file download.
 
 ## Run Locally
 

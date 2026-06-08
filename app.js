@@ -1,6 +1,7 @@
 ﻿const STORAGE_KEY = "tastory-oms-orders-v1";
+const SETTINGS_KEY = "tastory-oms-settings-v1";
 
-const PRODUCTS = [
+const DEFAULT_PRODUCTS = [
   { id: "classic-35", flavor: "Classic", size: "35g", price: 4.5, tone: "bg-amber-100 text-amber-800" },
   { id: "classic-150", flavor: "Classic", size: "150g", price: 15, tone: "bg-amber-100 text-amber-800" },
   { id: "chocolate-35", flavor: "Chocolate", size: "35g", price: 5.5, tone: "bg-stone-200 text-stone-800" },
@@ -24,6 +25,7 @@ const PRODUCTION_STATUSES = [
   "Ready For Delivery",
   "Delivered",
   "Closed",
+  "Cancelled",
 ];
 const QUICK_PRODUCTION_WORKFLOW = [
   "Waiting For Batch",
@@ -34,6 +36,9 @@ const QUICK_PRODUCTION_WORKFLOW = [
   "Delivered",
 ];
 const DELIVERY_METHODS = ["Self Delivery", "Friend Delivery", "Courier", "Customer Pickup"];
+
+let appSettings = loadSettings();
+let PRODUCTS = appSettings.products;
 
 const ICONS = {
   dashboard: '<path d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/>',
@@ -51,7 +56,7 @@ const ICONS = {
   trash: '<path d="M8 3V1h8v2h5v2H3V3h5Zm-2 4h12l-1 15H7L6 7Zm2.1 2 .7 11h6.4l.7-11H8.1Z"/>',
 };
 
-const VALID_PAGES = ["dashboard", "new-order", "orders", "production"];
+const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing"];
 
 function initialPage() {
   const page = new URLSearchParams(window.location.search).get("page") || window.location.hash.replace("#", "");
@@ -75,6 +80,59 @@ function dateOffset(days) {
   value.setHours(12, 0, 0, 0);
   value.setDate(value.getDate() + days);
   return value.toISOString().slice(0, 10);
+}
+
+function normalizeProduct(product, index = 0) {
+  const flavor = String(product.flavor || "Granola").trim() || "Granola";
+  const size = String(product.size || "Pack").trim() || "Pack";
+  const slug = flavor.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + size.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return {
+    id: product.id || slug + "-" + index,
+    flavor,
+    size,
+    price: Math.max(0, Number(product.price || 0)),
+    tone: product.tone || "bg-amber-100 text-amber-800",
+  };
+}
+
+function loadSettings() {
+  const defaults = {
+    products: DEFAULT_PRODUCTS.map(normalizeProduct),
+    exportFolderName: "",
+  };
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+    if (!stored || typeof stored !== "object") return defaults;
+    const products = Array.isArray(stored.products) && stored.products.length
+      ? stored.products.map(normalizeProduct)
+      : defaults.products;
+    return {
+      ...defaults,
+      ...stored,
+      products,
+      exportFolderName: stored.exportFolderName || "",
+    };
+  } catch (error) {
+    console.warn("Could not load settings.", error);
+    return defaults;
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings));
+}
+
+function productById(productId) {
+  return PRODUCTS.find((product) => product.id === productId);
+}
+
+function productLabel(productId) {
+  const product = productById(productId);
+  return product ? product.flavor + " " + product.size : productId;
+}
+
+function productFlavors() {
+  return [...new Set(PRODUCTS.map((product) => product.flavor))];
 }
 
 function sampleOrders() {
@@ -146,7 +204,7 @@ function sampleOrders() {
         { productId: "classic-35", quantity: 5 },
         { productId: "chocolate-150", quantity: 2 },
       ],
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      createdAt: new Date().toISOString(),
     },
     {
       id: "TAS-1047",
@@ -220,19 +278,31 @@ function formatMoney(value) {
 
 function orderTotal(order) {
   return order.items.reduce((sum, item) => {
-    const product = PRODUCTS.find((entry) => entry.id === item.productId);
-    return sum + (product?.price || 0) * item.quantity;
+    const product = productById(item.productId);
+    const unitPrice = Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice) : Number(product?.price || 0);
+    return sum + unitPrice * item.quantity;
   }, 0);
 }
 
 function normalizeOrder(order) {
-  const total = orderTotal(order);
+  const items = Array.isArray(order.items)
+    ? order.items.map((item) => {
+        const product = productById(item.productId);
+        return {
+          productId: item.productId,
+          quantity: Math.max(0, Number(item.quantity || 0)),
+          unitPrice: Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice) : Number(product?.price || 0),
+        };
+      }).filter((item) => item.quantity > 0)
+    : [];
+  const normalizedOrder = { ...order, items };
+  const total = orderTotal(normalizedOrder);
   let amountPaid = Number(order.amountPaid);
   if (!Number.isFinite(amountPaid)) {
     amountPaid = order.paymentStatus === "Paid" ? total : 0;
   }
   return {
-    ...order,
+    ...normalizedOrder,
     paymentStatus: PAYMENT_STATUSES.includes(order.paymentStatus) ? order.paymentStatus : "Unpaid",
     productionStatus: PRODUCTION_STATUSES.includes(order.productionStatus) ? order.productionStatus : "Waiting For Batch",
     amountPaid: Math.max(0, Math.min(total, amountPaid)),
@@ -322,6 +392,32 @@ function header(title, eyebrow, action = "") {
   `;
 }
 
+function localDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dailyOrders(dateKey = localDateKey()) {
+  return state.orders.filter((order) => localDateKey(order.createdAt) === dateKey);
+}
+
+function orderOverview(orders = dailyOrders()) {
+  return {
+    total: orders.length,
+    pending: orders.filter((order) => ["New Order", "Waiting For Batch"].includes(order.productionStatus)).length,
+    inProgress: orders.filter((order) => ["Scheduled For Baking", "Baking", "Packed", "Ready For Delivery"].includes(order.productionStatus)).length,
+    completed: orders.filter((order) => ["Delivered", "Closed"].includes(order.productionStatus)).length,
+    cancelled: orders.filter((order) => order.productionStatus === "Cancelled").length,
+  };
+}
+
+function overviewMetric(label, value, tone) {
+  return `<div class="rounded-2xl ${tone} p-3"><p class="text-2xl font-extrabold">${value}</p><p class="mt-1 text-[11px] font-bold leading-4">${label}</p></div>`;
+}
 function bottomNav() {
   const items = [
     ["dashboard", "Dashboard", "dashboard"],
@@ -360,6 +456,8 @@ function renderDashboard() {
     .slice(0, 4);
   const revenue = state.orders.reduce((sum, order) => sum + amountPaid(order), 0);
   const outstanding = active.reduce((sum, order) => sum + outstandingAmount(order), 0);
+  const todayOrders = dailyOrders();
+  const overview = orderOverview(todayOrders);
 
   return `
     ${header("Good morning, Jane", "Tastory OMS", `
@@ -399,6 +497,44 @@ function renderDashboard() {
         </button>
       </section>
 
+      <section class="grid grid-cols-2 gap-3">
+        <button data-export-excel class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
+          <span class="block text-sm font-extrabold">Export to Excel</span>
+          <span class="mt-1 block text-xs text-stone-500">Choose where to save today's file</span>
+        </button>
+        <button data-auto-export class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
+          <span class="block text-sm font-extrabold">Auto Export</span>
+          <span class="mt-1 block text-xs text-stone-500">${appSettings.exportFolderName ? "Save to " + escapeHtml(appSettings.exportFolderName) : "Set default folder first"}</span>
+        </button>
+      </section>
+
+      <section class="rounded-3xl bg-white p-5 shadow-soft">
+        <div class="mb-4 flex items-end justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-extrabold text-forest">Order Overview</h2>
+            <p class="text-xs text-stone-500">Today - ${formatDate(localDateKey(), { year: true })}</p>
+          </div>
+          <button data-nav="summary" class="rounded-xl bg-forest px-3 py-2 text-xs font-extrabold text-white">View All Orders</button>
+        </div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          ${overviewMetric("Total orders today", overview.total, "bg-sage text-forest")}
+          ${overviewMetric("Pending", overview.pending, "bg-amber-50 text-amber-700")}
+          ${overviewMetric("In progress", overview.inProgress, "bg-orange-50 text-orange-700")}
+          ${overviewMetric("Completed", overview.completed, "bg-emerald-50 text-emerald-700")}
+          ${overviewMetric("Cancelled", overview.cancelled, "bg-red-50 text-red-700")}
+        </div>
+      </section>
+
+      <section class="grid grid-cols-2 gap-3">
+        <button data-set-export-folder class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
+          <span class="block text-sm font-extrabold">Set Export Folder</span>
+          <span class="mt-1 block text-xs text-stone-500">${appSettings.exportFolderName ? escapeHtml(appSettings.exportFolderName) : "Choose default folder"}</span>
+        </button>
+        <button data-nav="pricing" class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
+          <span class="block text-sm font-extrabold">Manage Pricing</span>
+          <span class="mt-1 block text-xs text-stone-500">Edit products and pack sizes</span>
+        </button>
+      </section>
       <section>
         <div class="mb-3 flex items-end justify-between">
           <div>
@@ -529,7 +665,7 @@ function renderNewOrder() {
             <span id="form-item-count" class="rounded-full bg-sage px-3 py-1 text-xs font-bold text-forest">0 items</span>
           </div>
           <div class="space-y-5">
-            ${["Classic", "Chocolate", "Matcha", "Coffee", "Cinnamon"]
+            ${productFlavors()
               .map((flavor) => {
                 const flavorProducts = PRODUCTS.filter((product) => product.flavor === flavor);
                 return `
@@ -718,7 +854,7 @@ function renderProduction() {
           <p class="text-xs text-stone-500">All active orders combined</p>
         </div>
         <div class="overflow-hidden rounded-2xl bg-white shadow-soft">
-          ${["Classic", "Chocolate", "Matcha", "Coffee", "Cinnamon"]
+          ${productFlavors()
             .map((flavor, index) => {
               const products = totals.filter((product) => product.flavor === flavor);
               const total = products.reduce((sum, product) => sum + product.quantity, 0);
@@ -727,7 +863,7 @@ function renderProduction() {
                   <span class="grid h-10 w-10 place-items-center rounded-xl ${products[0].tone} font-extrabold">${flavor[0]}</span>
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-extrabold">${flavor}</p>
-                    <p class="text-xs text-stone-500">35g: ${products[0].quantity} - 150g: ${products[1].quantity}</p>
+                    <p class="text-xs text-stone-500">${products.map((product) => `${product.size}: ${product.quantity}`).join(" - ")}</p>
                   </div>
                   <span class="text-xl font-extrabold text-forest">${total}</span>
                 </div>
@@ -784,6 +920,268 @@ function renderProduction() {
   `;
 }
 
+function renderSummary() {
+  const orders = dailyOrders().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const overview = orderOverview(orders);
+  return `
+    ${header("Daily Summary", "Today", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    <main class="page-enter space-y-5 px-5 md:px-8">
+      <section class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        ${overviewMetric("Total", overview.total, "bg-sage text-forest")}
+        ${overviewMetric("Pending", overview.pending, "bg-amber-50 text-amber-700")}
+        ${overviewMetric("In progress", overview.inProgress, "bg-orange-50 text-orange-700")}
+        ${overviewMetric("Completed", overview.completed, "bg-emerald-50 text-emerald-700")}
+        ${overviewMetric("Cancelled", overview.cancelled, "bg-red-50 text-red-700")}
+      </section>
+      <section class="space-y-3">
+        ${orders.length ? orders.map((order) => `
+          <article class="rounded-2xl bg-white p-4 shadow-soft">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-extrabold text-ink">${escapeHtml(order.customerName)}</p>
+                <p class="mt-1 text-xs text-stone-500">${order.id} - ${itemCount(order)} items - ${formatMoney(orderTotal(order))}</p>
+              </div>
+              <span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${productionColor(order.productionStatus)}">${order.productionStatus}</span>
+            </div>
+            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div><span class="text-stone-400">Paid</span><p class="font-bold">${formatMoney(amountPaid(order))}</p></div>
+              <div><span class="text-stone-400">Outstanding</span><p class="font-bold ${outstandingAmount(order) > 0 ? "text-red-600" : "text-emerald-700"}">${formatMoney(outstandingAmount(order))}</p></div>
+            </div>
+            ${order.customerNotes ? `<p class="mt-3 rounded-xl bg-cream p-3 text-xs text-stone-600">${escapeHtml(order.customerNotes)}</p>` : ""}
+          </article>
+        `).join("") : emptyState("No orders today", "Daily orders created today will appear here.")}
+      </section>
+    </main>
+  `;
+}
+
+function renderPricing() {
+  return `
+    ${header("Pricing", "Product settings", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    <main class="page-enter px-5 md:px-8">
+      <form id="pricing-form" class="space-y-4">
+        <section class="rounded-3xl bg-white p-5 shadow-soft">
+          <div class="mb-4">
+            <h2 class="text-lg font-extrabold text-forest">Granola Prices</h2>
+            <p class="text-xs text-stone-500">Changes are saved in application settings and used for new orders.</p>
+          </div>
+          <div id="pricing-list" class="space-y-3">
+            ${PRODUCTS.map((product, index) => pricingRow(product, index)).join("")}
+          </div>
+          <button type="button" data-add-product class="mt-4 min-h-11 w-full rounded-xl border border-dashed border-stone-300 bg-cream px-4 text-sm font-extrabold text-forest">Add Product / Size</button>
+        </section>
+        <section class="sticky bottom-20 z-20 rounded-2xl border border-stone-200 bg-white/95 p-3 shadow-soft backdrop-blur">
+          <button class="min-h-12 w-full rounded-xl bg-orange px-5 text-sm font-extrabold text-white" type="submit">Save Pricing</button>
+        </section>
+      </form>
+    </main>
+  `;
+}
+
+function pricingRow(product, index) {
+  return `
+    <div class="rounded-2xl border border-stone-200 p-3" data-pricing-row>
+      <input type="hidden" name="product-id" value="${escapeHtml(product.id)}" />
+      <div class="grid grid-cols-[1fr_0.8fr] gap-2">
+        <label><span class="label">Flavor</span><input class="field" name="product-flavor" value="${escapeHtml(product.flavor)}" required /></label>
+        <label><span class="label">Size</span><input class="field" name="product-size" value="${escapeHtml(product.size)}" required placeholder="250g" /></label>
+      </div>
+      <div class="mt-2 grid grid-cols-[1fr_auto] gap-2">
+        <label><span class="label">Price (RM)</span><input class="field" name="product-price" type="number" min="0" step="0.01" value="${product.price}" required /></label>
+        <button type="button" data-remove-product class="mt-6 grid h-11 w-11 place-items-center rounded-xl border border-red-200 bg-white text-red-600" aria-label="Remove product">${icon("trash", "h-4 w-4")}</button>
+      </div>
+    </div>
+  `;
+}
+const EXPORT_DB_NAME = "tastory-oms-export-handles";
+const EXPORT_STORE_NAME = "handles";
+
+function exportFileName(dateKey = localDateKey()) {
+  return `DailyOrders_${dateKey}.xlsx`;
+}
+
+function dailyOrderRows() {
+  return dailyOrders().map((order) => ({
+    "Order ID": order.id,
+    "Customer": order.customerName,
+    "Phone": order.phone,
+    "Delivery Address": order.address,
+    "Latest Delivery Date": order.latestDeliveryDate,
+    "Production Status": order.productionStatus,
+    "Payment Status": order.paymentStatus,
+    "Payment Method": order.paymentMethod,
+    "Order Total": orderTotal(order),
+    "Amount Paid": amountPaid(order),
+    "Outstanding": outstandingAmount(order),
+    "Items": order.items.map((item) => `${productLabel(item.productId)} x ${item.quantity} @ ${formatMoney(item.unitPrice ?? productById(item.productId)?.price ?? 0)}`).join("; "),
+    "Customer Notes": order.customerNotes,
+    "Remarks": order.remarks,
+    "Created At": new Date(order.createdAt).toLocaleString("en-MY"),
+  }));
+}
+
+function xmlEscape(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function columnName(index) {
+  let name = "";
+  let value = index + 1;
+  while (value > 0) {
+    const mod = (value - 1) % 26;
+    name = String.fromCharCode(65 + mod) + name;
+    value = Math.floor((value - mod) / 26);
+  }
+  return name;
+}
+
+function sheetXml(rows) {
+  const headers = rows.length ? Object.keys(rows[0]) : ["Order ID", "Customer", "Order Total", "Amount Paid", "Outstanding"];
+  const allRows = [headers, ...rows.map((row) => headers.map((header) => row[header]))];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>${allRows
+    .map((row, rowIndex) => `<row r="${rowIndex + 1}">${row
+      .map((cell, columnIndex) => {
+        const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
+        return typeof cell === "number"
+          ? `<c r="${ref}"><v>${cell}</v></c>`
+          : `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(cell)}</t></is></c>`;
+      })
+      .join("")}</row>`)
+    .join("")}</sheetData></worksheet>`;
+}
+
+function crc32(bytes) {
+  let crc = -1;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function u16(value) { return [value & 255, (value >>> 8) & 255]; }
+function u32(value) { return [value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]; }
+
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  files.forEach((file) => {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+    const local = new Uint8Array([0x50,0x4b,0x03,0x04, ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...name, ...data]);
+    chunks.push(local);
+    central.push(new Uint8Array([0x50,0x4b,0x01,0x02, ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), ...name]));
+    offset += local.length;
+  });
+  const centralSize = central.reduce((sum, item) => sum + item.length, 0);
+  const end = new Uint8Array([0x50,0x4b,0x05,0x06, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(centralSize), ...u32(offset), ...u16(0)]);
+  return new Blob([...chunks, ...central, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function createXlsxBlob(rows) {
+  return createZip([
+    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>` },
+    { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Daily Orders" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>` },
+    { name: "xl/worksheets/sheet1.xml", content: sheetXml(rows) },
+  ]);
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function openExportDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(EXPORT_DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(EXPORT_STORE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveDirectoryHandle(handle) {
+  const db = await openExportDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(EXPORT_STORE_NAME, "readwrite");
+    tx.objectStore(EXPORT_STORE_NAME).put(handle, "directory");
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getDirectoryHandle() {
+  const db = await openExportDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(EXPORT_STORE_NAME, "readonly");
+    const request = tx.objectStore(EXPORT_STORE_NAME).get("directory");
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function setDefaultExportFolder() {
+  if (!window.showDirectoryPicker) {
+    showToast("This browser does not support default export folders. Use Export to Excel instead.", "error");
+    return;
+  }
+  const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+  await saveDirectoryHandle(handle);
+  appSettings.exportFolderName = handle.name;
+  saveSettings();
+  showToast(`Default export folder set to ${handle.name}.`);
+  render();
+}
+
+async function exportDailyOrders(auto = false) {
+  const rows = dailyOrderRows();
+  const blob = createXlsxBlob(rows);
+  const fileName = exportFileName();
+  try {
+    if (auto) {
+      if (!window.showDirectoryPicker) {
+        downloadBlob(blob, fileName);
+        showToast("Auto folder is not supported here. Download started instead.");
+        return;
+      }
+      let handle = await getDirectoryHandle();
+      if (!handle) {
+        await setDefaultExportFolder();
+        handle = await getDirectoryHandle();
+      }
+      const permission = await handle.requestPermission({ mode: "readwrite" });
+      if (permission !== "granted") throw new Error("Folder permission was not granted.");
+      const fileHandle = await handle.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      showToast(`${fileName} saved to ${handle.name}.`);
+      return;
+    }
+    if (window.showSaveFilePicker) {
+      const fileHandle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: "Excel Workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }] });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      showToast(`${fileName} exported.`);
+    } else {
+      downloadBlob(blob, fileName);
+      showToast(`${fileName} download started.`);
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") showToast(error.message || "Export failed.", "error");
+  }
+}
 function renderOrderModal(order) {
   const nextStatus = nextProductionStatus(order.productionStatus);
   const waUrl = whatsappUrl(order);
@@ -897,6 +1295,8 @@ function render() {
     "new-order": renderNewOrder,
     orders: renderOrders,
     production: renderProduction,
+    summary: renderSummary,
+    pricing: renderPricing,
   };
   app.innerHTML = `${pages[state.page]()}${bottomNav()}`;
   bindEvents();
@@ -915,6 +1315,10 @@ function bindEvents() {
     button.addEventListener("click", () => navigate(button.dataset.nav));
   });
 
+
+  document.querySelector("[data-export-excel]")?.addEventListener("click", () => exportDailyOrders(false));
+  document.querySelector("[data-auto-export]")?.addEventListener("click", () => exportDailyOrders(true));
+  document.querySelector("[data-set-export-folder]")?.addEventListener("click", setDefaultExportFolder);
   document.querySelectorAll("[data-order-id]").forEach((button) => {
     button.addEventListener("click", () => openOrder(button.dataset.orderId));
   });
@@ -954,12 +1358,82 @@ function bindEvents() {
     form.elements.amountPaid.addEventListener("input", updateFormTotal);
   }
 
+
+  const pricingForm = document.querySelector("#pricing-form");
+  if (pricingForm) {
+    pricingForm.addEventListener("submit", handlePricingSubmit);
+    pricingForm.querySelector("[data-add-product]").addEventListener("click", () => {
+      const product = normalizeProduct({ flavor: "Classic", size: "250g", price: 0, tone: "bg-amber-100 text-amber-800" }, Date.now());
+      document.querySelector("#pricing-list").insertAdjacentHTML("beforeend", pricingRow(product, PRODUCTS.length));
+      bindPricingRowButtons();
+    });
+    bindPricingRowButtons();
+  }
+
   document.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
     state.editingId = null;
     navigate("orders");
   });
 }
 
+function bindPricingRowButtons() {
+  document.querySelectorAll("[data-remove-product]").forEach((button) => {
+    button.onclick = () => {
+      const rows = document.querySelectorAll("[data-pricing-row]");
+      if (rows.length <= 1) {
+        showToast("Keep at least one product.", "error");
+        return;
+      }
+      button.closest("[data-pricing-row]").remove();
+    };
+  });
+}
+
+function handlePricingSubmit(event) {
+  event.preventDefault();
+  const rows = [...document.querySelectorAll("[data-pricing-row]")];
+  const tones = ["bg-amber-100 text-amber-800", "bg-stone-200 text-stone-800", "bg-lime-100 text-lime-800", "bg-orange-100 text-orange-900", "bg-rose-100 text-rose-800"];
+  PRODUCTS = rows.map((row, index) => {
+    const flavor = row.querySelector('[name="product-flavor"]').value.trim();
+    const size = row.querySelector('[name="product-size"]').value.trim();
+    const price = Number(row.querySelector('[name="product-price"]').value || 0);
+    const existingId = row.querySelector('[name="product-id"]').value;
+    return normalizeProduct({ id: existingId, flavor, size, price, tone: tones[index % tones.length] }, index);
+  });
+  appSettings.products = PRODUCTS;
+  saveSettings();
+  showToast("Pricing saved. New orders will use the latest prices.");
+  render();
+}
+function bindPricingRowButtons() {
+  document.querySelectorAll("[data-remove-product]").forEach((button) => {
+    button.onclick = () => {
+      const rows = document.querySelectorAll("[data-pricing-row]");
+      if (rows.length <= 1) {
+        showToast("Keep at least one product.", "error");
+        return;
+      }
+      button.closest("[data-pricing-row]").remove();
+    };
+  });
+}
+
+function handlePricingSubmit(event) {
+  event.preventDefault();
+  const rows = [...document.querySelectorAll("[data-pricing-row]")];
+  const tones = ["bg-amber-100 text-amber-800", "bg-stone-200 text-stone-800", "bg-lime-100 text-lime-800", "bg-orange-100 text-orange-900", "bg-rose-100 text-rose-800"];
+  PRODUCTS = rows.map((row, index) => {
+    const flavor = row.querySelector('[name="product-flavor"]').value.trim();
+    const size = row.querySelector('[name="product-size"]').value.trim();
+    const price = Number(row.querySelector('[name="product-price"]').value || 0);
+    const existingId = row.querySelector('[name="product-id"]').value;
+    return normalizeProduct({ id: existingId, flavor, size, price, tone: tones[index % tones.length] }, index);
+  });
+  appSettings.products = PRODUCTS;
+  saveSettings();
+  showToast("Pricing saved. New orders will use the latest prices.");
+  render();
+}
 function renderOrderSearchResults() {
   const list = document.querySelector("#order-list");
   if (!list) return;
@@ -1025,6 +1499,7 @@ function handleOrderSubmit(event) {
   const items = PRODUCTS.map((product) => ({
     productId: product.id,
     quantity: Number(data.get(`qty-${product.id}`) || 0),
+    unitPrice: Number(product.price || 0),
   })).filter((item) => item.quantity > 0);
 
   if (!items.length) {
