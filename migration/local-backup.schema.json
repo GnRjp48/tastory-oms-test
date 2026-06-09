@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oms.tastory4u.com/schemas/local-backup-v1.json",
+  "title": "Tastory OMS Local Backup",
+  "type": "object",
+  "required": ["format", "version", "exportedAt", "sourceOrigin", "orders", "settings"],
+  "properties": {
+    "format": {
+      "const": "tastory-oms-backup"
+    },
+    "version": {
+      "const": 1
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceOrigin": {
+      "type": "string",
+      "format": "uri"
+    },
+    "orders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "customerName", "items", "createdAt"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "customerName": { "type": "string", "minLength": 1 },
+          "phone": { "type": "string" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["productId", "quantity"],
+              "properties": {
+                "productId": { "type": "string", "minLength": 1 },
+                "quantity": { "type": "number", "exclusiveMinimum": 0 },
+                "unitPrice": { "type": "number", "minimum": 0 }
+              }
+            }
+          },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "products": {
+          "type": "array"
+        },
+        "exportFolderName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

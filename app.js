@@ -1,5 +1,36 @@
 ﻿const STORAGE_KEY = "tastory-oms-orders-v1";
 const SETTINGS_KEY = "tastory-oms-settings-v1";
+const CLOUD = window.TastoryCloud;
+
+function isCloudMode() {
+  return CLOUD?.provider() === "supabase";
+}
+
+function cloudRoles() {
+  if (!isCloudMode() || !state?.cloudSession?.access_token) return ["admin"];
+  try {
+    const payload = state.cloudSession.access_token.split(".")[1]
+      .replaceAll("-", "+")
+      .replaceAll("_", "/");
+    const padded = payload + "=".repeat((4 - (payload.length % 4)) % 4);
+    return JSON.parse(atob(padded)).app_roles || [];
+  } catch {
+    return [];
+  }
+}
+
+function canUse(capability) {
+  if (!isCloudMode()) return true;
+  const roles = cloudRoles();
+  const allowed = {
+    createOrder: ["admin", "manager", "sales_staff"],
+    editOrder: ["admin", "manager"],
+    archiveOrder: ["admin", "manager"],
+    updateProduction: ["admin", "manager", "production_staff"],
+    managePricing: ["admin"],
+  };
+  return (allowed[capability] || []).some((role) => roles.includes(role));
+}
 
 const DEFAULT_PRODUCTS = [
   { id: "classic-35", flavor: "Classic", size: "35g", price: 4.5, tone: "bg-amber-100 text-amber-800" },
@@ -69,6 +100,10 @@ const state = {
   orderFilter: "Active",
   orderSearch: "",
   editingId: null,
+  cloudSession: null,
+  cloudLoading: false,
+  cloudError: "",
+  cloudConnectedAt: null,
 };
 
 function icon(name, classes = "h-5 w-5") {
@@ -119,6 +154,14 @@ function loadSettings() {
 }
 
 function saveSettings() {
+  if (isCloudMode()) {
+    const stored = loadSettings();
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      ...stored,
+      exportFolderName: appSettings.exportFolderName || "",
+    }));
+    return;
+  }
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings));
 }
 
@@ -246,6 +289,7 @@ function loadOrders() {
 }
 
 function saveOrders() {
+  if (isCloudMode()) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.orders));
 }
 
@@ -418,16 +462,79 @@ function orderOverview(orders = dailyOrders()) {
 function overviewMetric(label, value, tone) {
   return `<div class="rounded-2xl ${tone} p-3"><p class="text-2xl font-extrabold">${value}</p><p class="mt-1 text-[11px] font-bold leading-4">${label}</p></div>`;
 }
+
+function renderLogin() {
+  const resetMode = new URLSearchParams(location.search).get("auth") === "reset";
+  return `
+    <main class="grid min-h-screen place-items-center px-5 py-10">
+      <section class="page-enter w-full max-w-md rounded-3xl bg-white p-6 shadow-soft">
+        <div class="mb-6">
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-orange">Tastory OMS</p>
+          <h1 class="mt-2 text-2xl font-extrabold text-forest">${resetMode ? "Choose a new password" : "Sign in to Supabase"}</h1>
+          <p class="mt-2 text-sm leading-6 text-stone-500">${resetMode
+            ? "Update the password for your Tastory account."
+            : "Shared orders, pricing, and production updates across devices."}</p>
+        </div>
+        ${state.cloudError ? `<div class="mb-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">${escapeHtml(state.cloudError)}</div>` : ""}
+        ${
+          resetMode
+            ? `<form id="password-update-form" class="space-y-4">
+                <label><span class="label">New password</span><input class="field" name="password" type="password" minlength="10" required autocomplete="new-password" /></label>
+                <button class="min-h-12 w-full rounded-xl bg-forest px-5 text-sm font-extrabold text-white" type="submit">Update password</button>
+              </form>`
+            : `<form id="login-form" class="space-y-4">
+                <label><span class="label">Email</span><input class="field" name="email" type="email" required autocomplete="email" value="tastory4u@gmail.com" /></label>
+                <label><span class="label">Password</span><input class="field" name="password" type="password" required autocomplete="current-password" /></label>
+                <button class="min-h-12 w-full rounded-xl bg-forest px-5 text-sm font-extrabold text-white" type="submit">${state.cloudLoading ? "Signing in..." : "Sign in"}</button>
+              </form>
+              <button data-reset-password class="mt-4 w-full py-2 text-sm font-bold text-orange">Send password reset email</button>`
+        }
+        <button data-use-local class="mt-5 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-bold text-stone-600">Return to LocalStorage mode</button>
+      </section>
+    </main>
+  `;
+}
+
+function cloudControlPanel() {
+  if (!isCloudMode()) {
+    return `
+      <section class="rounded-3xl border border-stone-200 bg-white p-5 shadow-soft">
+        <p class="text-xs font-bold uppercase tracking-[0.14em] text-orange">Data mode</p>
+        <h2 class="mt-1 text-lg font-extrabold text-forest">LocalStorage is active</h2>
+        <p class="mt-2 text-xs leading-5 text-stone-500">This device keeps working exactly as before. Activate Supabase when you are ready to use shared data.</p>
+        <button data-use-cloud class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Sign in to Supabase</button>
+      </section>
+    `;
+  }
+  return `
+    <section class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Supabase connected</p>
+          <h2 class="mt-1 text-lg font-extrabold text-forest">Shared business data</h2>
+          <p class="mt-1 text-xs text-emerald-800">${escapeHtml(state.cloudSession?.user?.email || "")}</p>
+        </div>
+        <span class="rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-extrabold text-white">LIVE</span>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-2">
+        <button data-import-local class="min-h-11 rounded-xl bg-forest px-3 text-xs font-extrabold text-white">Backup & Import Local Data</button>
+        <button data-use-local class="min-h-11 rounded-xl border border-emerald-300 bg-white px-3 text-xs font-extrabold text-emerald-800">Use LocalStorage</button>
+      </div>
+      <button data-sign-out class="mt-2 min-h-10 w-full text-xs font-bold text-stone-500">Sign out</button>
+    </section>
+  `;
+}
+
 function bottomNav() {
   const items = [
     ["dashboard", "Dashboard", "dashboard"],
     ["new-order", "New Order", "add"],
     ["orders", "Orders", "orders"],
     ["production", "Production", "production"],
-  ];
+  ].filter(([page]) => page !== "new-order" || canUse("createOrder"));
   return `
     <nav class="safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl border-t border-stone-200 bg-white/95 px-2 pt-2 backdrop-blur">
-      <div class="grid grid-cols-4">
+      <div class="grid" style="grid-template-columns: repeat(${items.length}, minmax(0, 1fr))">
         ${items
           .map(([page, label, iconName]) => {
             const active = state.page === page;
@@ -464,6 +571,7 @@ function renderDashboard() {
       <div class="grid h-11 w-11 place-items-center rounded-full bg-forest font-extrabold text-white shadow-soft">J</div>
     `)}
     <main class="page-enter space-y-6 px-5 md:px-8">
+      ${cloudControlPanel()}
       <section class="overflow-hidden rounded-3xl bg-forest p-5 text-white shadow-soft">
         <div class="flex items-start justify-between">
           <div>
@@ -485,11 +593,15 @@ function renderDashboard() {
       </section>
 
       <section class="grid grid-cols-2 gap-3">
-        <button data-nav="new-order" class="rounded-2xl bg-orange p-4 text-left text-white shadow-soft">
+        ${canUse("createOrder") ? `<button data-nav="new-order" class="rounded-2xl bg-orange p-4 text-left text-white shadow-soft">
           <span class="mb-7 inline-grid h-9 w-9 place-items-center rounded-xl bg-white/20">${icon("add", "h-5 w-5")}</span>
           <span class="block text-sm font-extrabold">Create order</span>
           <span class="text-xs text-white/75">Add a new customer order</span>
-        </button>
+        </button>` : `<div class="rounded-2xl bg-stone-100 p-4 text-left text-stone-500 shadow-soft">
+          <span class="mb-7 inline-grid h-9 w-9 place-items-center rounded-xl bg-white">${icon("orders", "h-5 w-5")}</span>
+          <span class="block text-sm font-extrabold">Assigned orders</span>
+          <span class="text-xs">Your production queue</span>
+        </div>`}
         <button data-nav="production" class="rounded-2xl bg-sage p-4 text-left text-forest shadow-soft">
           <span class="mb-7 inline-grid h-9 w-9 place-items-center rounded-xl bg-white/60">${icon("production", "h-5 w-5")}</span>
           <span class="block text-sm font-extrabold">Plan production</span>
@@ -530,10 +642,13 @@ function renderDashboard() {
           <span class="block text-sm font-extrabold">Set Export Folder</span>
           <span class="mt-1 block text-xs text-stone-500">${appSettings.exportFolderName ? escapeHtml(appSettings.exportFolderName) : "Choose default folder"}</span>
         </button>
-        <button data-nav="pricing" class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
+        ${canUse("managePricing") ? `<button data-nav="pricing" class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
           <span class="block text-sm font-extrabold">Manage Pricing</span>
           <span class="mt-1 block text-xs text-stone-500">Edit products and pack sizes</span>
-        </button>
+        </button>` : `<div class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-stone-400 shadow-soft">
+          <span class="block text-sm font-extrabold">Shared pricing</span>
+          <span class="mt-1 block text-xs">Managed by an administrator</span>
+        </div>`}
       </section>
       <section>
         <div class="mb-3 flex items-end justify-between">
@@ -601,7 +716,7 @@ function orderCard(order) {
           ${icon("whatsapp", "h-4 w-4")} WhatsApp
         </a>
         ${
-          nextStatus
+          nextStatus && canUse("updateProduction")
             ? `<button data-advance-status="${order.id}" class="min-h-11 rounded-xl bg-forest px-3 text-xs font-extrabold text-white">Next: ${nextStatus}</button>`
             : `<button class="min-h-11 rounded-xl bg-stone-100 px-3 text-xs font-extrabold text-stone-400" disabled>Workflow done</button>`
         }
@@ -789,7 +904,7 @@ function renderOrders() {
 
   return `
     ${header("Orders", `${state.orders.length} total`, `
-      <button data-nav="new-order" class="grid h-11 w-11 place-items-center rounded-xl bg-orange text-white shadow-soft" aria-label="Create new order">${icon("add")}</button>
+      ${canUse("createOrder") ? `<button data-nav="new-order" class="grid h-11 w-11 place-items-center rounded-xl bg-orange text-white shadow-soft" aria-label="Create new order">${icon("add")}</button>` : ""}
     `)}
     <main class="page-enter px-5 md:px-8">
       <div class="relative">
@@ -1191,8 +1306,8 @@ function renderOrderModal(order) {
       return `
         <div class="flex items-center justify-between py-2">
           <div>
-            <p class="text-sm font-bold">${product.flavor} ${product.size}</p>
-            <p class="text-xs text-stone-400">${formatMoney(product.price)} each</p>
+            <p class="text-sm font-bold">${escapeHtml(product ? `${product.flavor} ${product.size}` : `${item.productName || "Granola"} ${item.variantName || ""}`)}</p>
+            <p class="text-xs text-stone-400">${formatMoney(item.unitPrice ?? product?.price ?? 0)} each</p>
           </div>
           <p class="text-sm font-extrabold">x ${item.quantity}</p>
         </div>
@@ -1272,16 +1387,16 @@ function renderOrderModal(order) {
               }).join("")}
             </div>
             ${
-              nextStatus
+              nextStatus && canUse("updateProduction")
                 ? `<button data-modal-advance-status="${order.id}" class="mt-4 min-h-12 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Move to ${nextStatus}</button>`
                 : `<button class="mt-4 min-h-12 w-full rounded-xl bg-stone-100 px-4 text-sm font-extrabold text-stone-400" disabled>Workflow complete</button>`
             }
           </section>
 
-          <div class="grid grid-cols-[1fr_auto] gap-3">
-            <button data-edit-order="${order.id}" class="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-forest px-4 text-sm font-extrabold text-white">${icon("edit", "h-4 w-4")} Edit Order</button>
-            <button data-delete-order="${order.id}" class="grid min-h-12 w-12 place-items-center rounded-xl border border-red-200 bg-white text-red-600" aria-label="Delete order">${icon("trash", "h-4 w-4")}</button>
-          </div>
+          ${canUse("editOrder") || canUse("archiveOrder") ? `<div class="grid grid-cols-[1fr_auto] gap-3">
+            ${canUse("editOrder") ? `<button data-edit-order="${order.id}" class="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-forest px-4 text-sm font-extrabold text-white">${icon("edit", "h-4 w-4")} Edit Order</button>` : "<div></div>"}
+            ${canUse("archiveOrder") ? `<button data-delete-order="${order.id}" class="grid min-h-12 w-12 place-items-center rounded-xl border border-red-200 bg-white text-red-600" aria-label="${isCloudMode() ? "Archive" : "Delete"} order">${icon("trash", "h-4 w-4")}</button>` : ""}
+          </div>` : ""}
         </div>
       </div>
     </div>
@@ -1290,6 +1405,15 @@ function renderOrderModal(order) {
 
 function render() {
   const app = document.querySelector("#app");
+  if (isCloudMode() && !state.cloudSession) {
+    app.innerHTML = renderLogin();
+    bindEvents();
+    return;
+  }
+  if (isCloudMode() && state.cloudSession) {
+    if (state.page === "new-order" && !canUse("createOrder")) state.page = "orders";
+    if (state.page === "pricing" && !canUse("managePricing")) state.page = "dashboard";
+  }
   const pages = {
     dashboard: renderDashboard,
     "new-order": renderNewOrder,
@@ -1311,6 +1435,34 @@ function navigate(page) {
 }
 
 function bindEvents() {
+  document.querySelector("#login-form")?.addEventListener("submit", handleLogin);
+  document.querySelector("#password-update-form")?.addEventListener("submit", handlePasswordUpdate);
+  document.querySelector("[data-reset-password]")?.addEventListener("click", handlePasswordReset);
+  document.querySelectorAll("[data-use-local]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      CLOUD?.unsubscribe();
+      CLOUD?.setProvider("local");
+      state.cloudSession = null;
+      state.cloudError = "";
+      appSettings = loadSettings();
+      PRODUCTS = appSettings.products;
+      state.orders = loadOrders();
+      render();
+      showToast("LocalStorage mode restored.");
+    });
+  });
+  document.querySelector("[data-use-cloud]")?.addEventListener("click", () => {
+    CLOUD?.setProvider("supabase");
+    state.cloudError = "";
+    initializeApp();
+  });
+  document.querySelector("[data-sign-out]")?.addEventListener("click", async () => {
+    await CLOUD.signOut();
+    state.cloudSession = null;
+    render();
+  });
+  document.querySelector("[data-import-local]")?.addEventListener("click", importLocalDataToCloud);
+
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.addEventListener("click", () => navigate(button.dataset.nav));
   });
@@ -1389,7 +1541,7 @@ function bindPricingRowButtons() {
   });
 }
 
-function handlePricingSubmit(event) {
+async function handlePricingSubmit(event) {
   event.preventDefault();
   const rows = [...document.querySelectorAll("[data-pricing-row]")];
   const tones = ["bg-amber-100 text-amber-800", "bg-stone-200 text-stone-800", "bg-lime-100 text-lime-800", "bg-orange-100 text-orange-900", "bg-rose-100 text-rose-800"];
@@ -1401,36 +1553,17 @@ function handlePricingSubmit(event) {
     return normalizeProduct({ id: existingId, flavor, size, price, tone: tones[index % tones.length] }, index);
   });
   appSettings.products = PRODUCTS;
-  saveSettings();
-  showToast("Pricing saved. New orders will use the latest prices.");
-  render();
-}
-function bindPricingRowButtons() {
-  document.querySelectorAll("[data-remove-product]").forEach((button) => {
-    button.onclick = () => {
-      const rows = document.querySelectorAll("[data-pricing-row]");
-      if (rows.length <= 1) {
-        showToast("Keep at least one product.", "error");
-        return;
-      }
-      button.closest("[data-pricing-row]").remove();
-    };
-  });
-}
-
-function handlePricingSubmit(event) {
-  event.preventDefault();
-  const rows = [...document.querySelectorAll("[data-pricing-row]")];
-  const tones = ["bg-amber-100 text-amber-800", "bg-stone-200 text-stone-800", "bg-lime-100 text-lime-800", "bg-orange-100 text-orange-900", "bg-rose-100 text-rose-800"];
-  PRODUCTS = rows.map((row, index) => {
-    const flavor = row.querySelector('[name="product-flavor"]').value.trim();
-    const size = row.querySelector('[name="product-size"]').value.trim();
-    const price = Number(row.querySelector('[name="product-price"]').value || 0);
-    const existingId = row.querySelector('[name="product-id"]').value;
-    return normalizeProduct({ id: existingId, flavor, size, price, tone: tones[index % tones.length] }, index);
-  });
-  appSettings.products = PRODUCTS;
-  saveSettings();
+  if (isCloudMode()) {
+    try {
+      await CLOUD.saveCatalog(PRODUCTS);
+      await refreshCloudWorkspace();
+    } catch (error) {
+      showToast(error.message || "Could not save cloud pricing.", "error");
+      return;
+    }
+  } else {
+    saveSettings();
+  }
   showToast("Pricing saved. New orders will use the latest prices.");
   render();
 }
@@ -1469,11 +1602,22 @@ function updateFormTotal() {
   document.querySelector("#form-outstanding").textContent = `Outstanding: ${formatMoney(Math.max(0, total - paid))}`;
 }
 
-function advanceProductionStatus(id) {
+async function advanceProductionStatus(id) {
   const order = state.orders.find((entry) => entry.id === id);
   if (!order) return;
   const nextStatus = nextProductionStatus(order.productionStatus);
   if (!nextStatus) return;
+  if (isCloudMode()) {
+    try {
+      await CLOUD.advanceStatus(order, nextStatus);
+      await refreshCloudWorkspace();
+      render();
+      showToast(`${order.id} moved to ${nextStatus}.`);
+    } catch (error) {
+      showToast(error.message || "Could not update production status.", "error");
+    }
+    return;
+  }
   order.productionStatus = nextStatus;
   order.updatedAt = new Date().toISOString();
   if (nextStatus === "Delivered" && !order.actualDeliveryDate) {
@@ -1492,7 +1636,7 @@ function nextOrderId() {
   return `TAS-${highest + 1}`;
 }
 
-function handleOrderSubmit(event) {
+async function handleOrderSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
@@ -1512,6 +1656,8 @@ function handleOrderSubmit(event) {
   const amountPaidInput = Number(data.get("amountPaid") || 0);
   const order = {
     id: existing?.id || nextOrderId(),
+    dbId: existing?.dbId || null,
+    version: existing?.version || null,
     customerName: data.get("customerName").trim(),
     phone: data.get("phone").trim(),
     address: data.get("address").trim(),
@@ -1534,7 +1680,15 @@ function handleOrderSubmit(event) {
   order.amountPaid = Math.min(orderTotal(order), order.amountPaid);
   order.paymentStatus = paymentStatusForAmount(order, order.paymentStatus);
 
-  if (existing) {
+  if (isCloudMode()) {
+    try {
+      await CLOUD.saveOrder(order);
+      await refreshCloudWorkspace();
+    } catch (error) {
+      showToast(error.message || "Could not save the shared order.", "error");
+      return;
+    }
+  } else if (existing) {
     state.orders = state.orders.map((entry) => (entry.id === order.id ? order : entry));
   } else {
     state.orders.unshift(order);
@@ -1593,20 +1747,145 @@ function openOrder(id) {
     close();
     advanceProductionStatus(id);
   });
-  document.querySelector("[data-edit-order]").addEventListener("click", () => {
+  document.querySelector("[data-edit-order]")?.addEventListener("click", () => {
     close();
     state.editingId = id;
     state.page = "new-order";
     render();
   });
-  document.querySelector("[data-delete-order]").addEventListener("click", () => {
-    if (!window.confirm(`Delete ${order.id} for ${order.customerName}? This cannot be undone.`)) return;
-    state.orders = state.orders.filter((entry) => entry.id !== id);
-    saveOrders();
+  document.querySelector("[data-delete-order]")?.addEventListener("click", async () => {
+    if (!window.confirm(`${isCloudMode() ? "Archive" : "Delete"} ${order.id} for ${order.customerName}?`)) return;
+    if (isCloudMode()) {
+      try {
+        await CLOUD.archiveOrder(order);
+        await refreshCloudWorkspace();
+      } catch (error) {
+        showToast(error.message || "Could not archive the shared order.", "error");
+        return;
+      }
+    } else {
+      state.orders = state.orders.filter((entry) => entry.id !== id);
+      saveOrders();
+    }
     close();
     render();
-    showToast(`${order.id} deleted.`);
+    showToast(`${order.id} ${isCloudMode() ? "archived" : "deleted"}.`);
   });
+}
+
+async function refreshCloudWorkspace({ quiet = false } = {}) {
+  if (!isCloudMode() || !state.cloudSession) return;
+  if (!quiet) state.cloudLoading = true;
+  try {
+    const workspace = await CLOUD.loadWorkspace();
+    state.orders = workspace.orders;
+    PRODUCTS = workspace.products;
+    appSettings = {
+      ...appSettings,
+      products: PRODUCTS,
+    };
+    state.cloudConnectedAt = new Date().toISOString();
+    state.cloudError = "";
+  } catch (error) {
+    state.cloudError = error.message || "Could not load Supabase data.";
+    if (!quiet) throw error;
+  } finally {
+    state.cloudLoading = false;
+  }
+}
+
+async function handleLogin(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  state.cloudLoading = true;
+  state.cloudError = "";
+  render();
+  try {
+    state.cloudSession = await CLOUD.signIn(
+      String(data.get("email") || "").trim(),
+      String(data.get("password") || ""),
+    );
+    await refreshCloudWorkspace();
+    CLOUD.subscribe(async () => {
+      await refreshCloudWorkspace({ quiet: true });
+      render();
+    });
+    state.page = "dashboard";
+    render();
+  } catch (error) {
+    state.cloudSession = null;
+    state.cloudError = error.message || "Sign-in failed.";
+    state.cloudLoading = false;
+    render();
+  }
+}
+
+async function handlePasswordReset() {
+  const email = document.querySelector("#login-form")?.elements.email.value.trim();
+  if (!email) {
+    showToast("Enter your email first.", "error");
+    return;
+  }
+  try {
+    await CLOUD.requestPasswordReset(email);
+    showToast("Password reset email sent.");
+  } catch (error) {
+    showToast(error.message || "Could not send reset email.", "error");
+  }
+}
+
+async function handlePasswordUpdate(event) {
+  event.preventDefault();
+  const password = new FormData(event.currentTarget).get("password");
+  try {
+    await CLOUD.updatePassword(password);
+    history.replaceState({}, "", location.pathname);
+    state.cloudSession = await CLOUD.session();
+    await refreshCloudWorkspace();
+    render();
+    showToast("Password updated.");
+  } catch (error) {
+    state.cloudError = error.message || "Could not update password.";
+    render();
+  }
+}
+
+async function importLocalDataToCloud() {
+  if (!window.confirm("Create a protected browser backup and import this device's local orders and pricing into Supabase?")) {
+    return;
+  }
+  try {
+    const result = await CLOUD.importLocalData();
+    await refreshCloudWorkspace();
+    render();
+    showToast(`Imported ${result.importedOrders} orders and ${result.importedProducts} products.`);
+  } catch (error) {
+    showToast(error.message || "Local data import failed.", "error");
+  }
+}
+
+async function initializeApp() {
+  if (!isCloudMode()) {
+    render();
+    return;
+  }
+  state.cloudLoading = true;
+  state.cloudError = "";
+  try {
+    state.cloudSession = await CLOUD.session();
+    if (state.cloudSession) {
+      await refreshCloudWorkspace();
+      CLOUD.subscribe(async () => {
+        await refreshCloudWorkspace({ quiet: true });
+        render();
+      });
+    }
+  } catch (error) {
+    state.cloudError = error.message || "Could not initialize Supabase.";
+  } finally {
+    state.cloudLoading = false;
+    render();
+  }
 }
 
 function showToast(message, type = "success") {
@@ -1620,7 +1899,7 @@ function showToast(message, type = "success") {
   setTimeout(() => toast.remove(), 2800);
 }
 
-render();
+initializeApp();
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {

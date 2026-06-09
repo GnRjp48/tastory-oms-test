@@ -1,0 +1,6 @@
+-- Reference roles and permissions are inserted by the migrations.
+-- Create local Auth users through Supabase Studio, then call:
+--
+-- select public.create_business_with_defaults('Tastory');
+--
+-- while authenticated as the intended first administrator.

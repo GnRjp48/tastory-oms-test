@@ -2,6 +2,12 @@
 
 A mobile-first, single-page order management system for Tastory, a small home-based granola business.
 
+Supabase Phase 1 backend infrastructure is documented in
+[`docs/supabase-phase-1.md`](docs/supabase-phase-1.md). The current UI continues
+to use browser storage by default. The opt-in Supabase frontend integration,
+realtime behavior, data protection, and rollback controls are documented in
+[`docs/phase-2-scope.md`](docs/phase-2-scope.md).
+
 ## Features
 
 - Dashboard with active orders, revenue, upcoming deliveries, and payment reminders

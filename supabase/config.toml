@@ -1,0 +1,59 @@
+project_id = "tastory-oms"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://localhost:8000"
+additional_redirect_urls = [
+  "http://localhost:8000",
+  "http://localhost:8000/?auth=reset",
+  "https://tastory4u.com",
+  "https://tastory4u.com/?auth=reset",
+  "https://www.tastory4u.com",
+  "https://www.tastory4u.com/?auth=reset",
+  "https://oms.tastory4u.com",
+  "https://oms.tastory4u.com/?auth=reset"
+]
+enable_signup = false
+minimum_password_length = 10
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+max_frequency = "1m"
+
+[storage.vector]
+enabled = false
+
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+[realtime]
+enabled = true
+
+[functions.invite-user]
+verify_jwt = true

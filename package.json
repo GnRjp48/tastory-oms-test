@@ -1,0 +1,18 @@
+{
+  "name": "tastory-oms",
+  "private": true,
+  "version": "2.0.0",
+  "scripts": {
+    "validate:phase1": "node scripts/validate-phase1.mjs",
+    "validate:phase2": "node scripts/validate-phase1.mjs",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:reset": "supabase db reset",
+    "supabase:lint": "supabase db lint",
+    "supabase:test": "supabase test db",
+    "supabase:types": "supabase gen types typescript --local > src/database.types.ts"
+  },
+  "devDependencies": {
+    "supabase": "2.105.0"
+  }
+}
