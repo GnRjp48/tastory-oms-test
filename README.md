@@ -41,6 +41,16 @@ Menu > Add to Home screen > Install
 
 The PWA manifest and service worker are included, so Chrome can install Tastory OMS as a standalone app.
 
+## Custom Domain
+
+The GitHub Pages custom domain is configured through the root `CNAME` file:
+
+```text
+tastory4u.com
+```
+
+The apex domain and `www` DNS records must point to GitHub Pages before HTTPS can be enabled.
+
 ## Export Notes
 
 `Export to Excel` creates `DailyOrders_YYYY-MM-DD.xlsx` for orders created today.
