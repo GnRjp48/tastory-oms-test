@@ -1,6 +1,7 @@
 ﻿const STORAGE_KEY = "tastory-oms-orders-v1";
 const SETTINGS_KEY = "tastory-oms-settings-v1";
 const CLOUD = window.TastoryCloud;
+const STAFF_ACCESS = window.TastoryStaffAccess;
 
 function isCloudMode() {
   return CLOUD?.provider() === "supabase";
@@ -33,6 +34,10 @@ function canUse(capability) {
     manageStaff: ["admin"],
   };
   return (allowed[capability] || []).some((role) => roles.includes(role));
+}
+
+function isRevokedAccessError(error) {
+  return STAFF_ACCESS.isRevokedError(error);
 }
 
 function currentUserName() {
@@ -1200,7 +1205,7 @@ function staffCard(member) {
           <button data-toggle-staff="${member.user_id}" data-active="${member.status === "active"}" ${member.is_current_user ? "disabled" : ""} class="min-h-11 rounded-xl px-3 text-xs font-extrabold ${member.status === "active" ? "border border-amber-200 bg-amber-50 text-amber-800" : "bg-forest text-white"} disabled:opacity-40">
             ${member.status === "active" ? "Disable" : "Reactivate"}
           </button>
-          <button data-remove-staff="${member.user_id}" ${member.is_current_user ? "disabled" : ""} class="min-h-11 rounded-xl border border-red-200 bg-white px-3 text-xs font-extrabold text-red-600 disabled:opacity-40">Remove</button>
+          <button data-remove-staff="${member.user_id}" ${member.is_current_user ? "disabled" : ""} class="min-h-11 rounded-xl border border-red-200 bg-white px-3 text-xs font-extrabold text-red-600 disabled:opacity-40">Remove from Tastory</button>
         </div>
       `}
     </article>
@@ -1244,6 +1249,12 @@ function renderStaff() {
         <div class="hide-scrollbar flex gap-2 overflow-x-auto pb-2">
           ${filters.map(([value, label]) => `<button data-staff-filter="${value}" class="shrink-0 rounded-full px-4 py-2 text-xs font-bold ${state.staffFilter === value ? "bg-forest text-white" : "border border-stone-200 bg-white text-stone-600"}">${label}</button>`).join("")}
         </div>
+      </section>
+
+      <section class="rounded-2xl border border-stone-200 bg-white p-4 text-xs leading-5 text-stone-600">
+        <p><strong>Disable account:</strong> keeps the Tastory role and allows later reactivation.</p>
+        <p class="mt-2"><strong>Remove from Tastory:</strong> removes the role and business access, but retains the Auth identity, profile, and historical activity.</p>
+        <p class="mt-2"><strong>Delete permanently:</strong> is not available in the OMS because historical records reference the user.</p>
       </section>
 
       ${state.staffLoading && !state.staffLoaded ? emptyState("Loading staff", "Checking Tastory staff and invitations.") : ""}
@@ -2076,12 +2087,14 @@ async function toggleStaffStatus(userId, currentlyActive) {
 async function removeStaffMember(userId) {
   const member = state.staff.find((item) => item.user_id === userId);
   if (!member) return;
-  if (!window.confirm(`Remove ${member.full_name} from Tastory? Their historical activity will be retained.`)) return;
+  if (!window.confirm(
+    `Remove ${member.full_name} from Tastory?\n\nTheir business role and OMS access will be removed. Their Auth identity, profile, and historical activity will be retained.`,
+  )) return;
   try {
     await CLOUD.removeStaff(userId);
     await refreshStaff();
     render();
-    showToast(`${member.full_name} removed from Tastory.`);
+    showToast(`${member.full_name} no longer has Tastory access.`);
   } catch (error) {
     showToast(error.message || "Could not remove staff.", "error");
   }
@@ -2134,7 +2147,10 @@ async function handleLogin(event) {
     state.page = "dashboard";
     render();
   } catch (error) {
+    if (isRevokedAccessError(error)) await CLOUD.signOut();
     state.cloudSession = null;
+    state.cloudRoleCodes = [];
+    state.orders = [];
     state.cloudError = error.message || "Sign-in failed.";
     state.cloudLoading = false;
     render();
@@ -2226,9 +2242,32 @@ async function initializeApp() {
       }
     }
   } catch (error) {
+    if (isRevokedAccessError(error)) {
+      CLOUD.unsubscribe();
+      await CLOUD.signOut();
+      state.cloudSession = null;
+      state.cloudRoleCodes = [];
+      state.orders = [];
+    }
     state.cloudError = error.message || "Could not initialize Supabase.";
   } finally {
     state.cloudLoading = false;
+    render();
+  }
+}
+
+async function verifyCurrentStaffAccess() {
+  if (!isCloudMode() || !state.cloudSession || state.authNeedsPassword) return;
+  try {
+    await CLOUD.touchSession();
+  } catch (error) {
+    if (!isRevokedAccessError(error)) return;
+    CLOUD.unsubscribe();
+    await CLOUD.signOut();
+    state.cloudSession = null;
+    state.cloudRoleCodes = [];
+    state.orders = [];
+    state.cloudError = STAFF_ACCESS.revokedMessage;
     render();
   }
 }
@@ -2245,6 +2284,12 @@ function showToast(message, type = "success") {
 }
 
 initializeApp();
+
+window.addEventListener("focus", verifyCurrentStaffAccess);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") verifyCurrentStaffAccess();
+});
+setInterval(verifyCurrentStaffAccess, 60000);
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {

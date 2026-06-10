@@ -14,10 +14,27 @@ The Staff Management screen is available only to signed-in Admin users.
 - Resend or cancel pending invitations.
 - Change an accepted or pending staff member's role.
 - Disable or reactivate accepted staff.
-- Remove staff from Tastory while retaining historical records.
+- Remove staff from Tastory while retaining the Auth identity, profile, and
+  historical records.
 
 The database prevents removal or deactivation of the current Admin and prevents
 demotion, removal, or deactivation of the last active Admin.
+
+## Removal Semantics
+
+`Remove from Tastory` is a business-membership removal, not permanent account
+deletion:
+
+- The Tastory role assignment is deleted.
+- `active_business_id` is cleared.
+- The OMS profile is marked inactive.
+- The user disappears from the Tastory Staff Management list.
+- The Supabase Auth identity and public profile are retained.
+- Historical orders, assignments, and activity records remain attributable.
+
+`Disable account` keeps the Tastory membership and role so an Admin can
+reactivate it later. Permanent Auth deletion is intentionally not exposed in the
+OMS because many historical records reference `public.users`.
 
 ## Invitation Email Delivery
 

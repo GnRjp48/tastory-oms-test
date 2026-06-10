@@ -23,6 +23,17 @@
           user: { id: "jane-user", email: "tastory4u@gmail.com" },
         }));
       }
+      if (params.get("seed") === "removed") {
+        localStorage.setItem("tastory-oms-data-provider-v2", "supabase");
+        localStorage.setItem("test-auth-session", JSON.stringify({
+          access_token: "removed-access",
+          user: {
+            id: "removed-user",
+            email: "removed@example.com",
+            user_metadata: { full_name: "Removed Staff" },
+          },
+        }));
+      }
       window.supabase = {
         createClient() {
           const invitedSession = {
@@ -70,7 +81,10 @@
             from(table) {
               return query(table);
             },
-            async rpc() {
+            async rpc(name) {
+              if (params.get("seed") === "removed" && name === "touch_staff_session") {
+                return { data: null, error: new Error("This staff account is inactive") };
+              }
               return { data: null, error: null };
             },
             channel() {
@@ -86,6 +100,7 @@
       };
     </script>
     <script src="../auth-callback.js"></script>
+    <script src="../staff-access.js"></script>
     <script src="../supabase-client.js"></script>
     <script src="../app.js"></script>
     <script>
