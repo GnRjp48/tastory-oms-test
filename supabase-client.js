@@ -60,15 +60,43 @@
     if (error) throw error;
   }
 
-  function activeBusinessId() {
-    return session().then((currentSession) => {
-      if (!currentSession?.access_token) return null;
+  async function activeBusinessId() {
+    const currentSession = await session();
+    if (!currentSession) return null;
+    try {
       const payload = currentSession.access_token.split(".")[1]
         .replaceAll("-", "+")
         .replaceAll("_", "/");
       const padded = payload + "=".repeat((4 - (payload.length % 4)) % 4);
-      return JSON.parse(atob(padded)).active_business_id || null;
-    });
+      const claim = JSON.parse(atob(padded)).active_business_id;
+      if (claim) return claim;
+    } catch {
+      // Fall through to the live profile when custom Auth claims are unavailable.
+    }
+    const { data, error } = await getClient()
+      .from("users")
+      .select("active_business_id")
+      .eq("id", currentSession.user.id)
+      .single();
+    if (error) throw error;
+    return data?.active_business_id || null;
+  }
+
+  async function loadAccessContext() {
+    const currentSession = await session();
+    if (!currentSession) return { businessId: null, roles: [] };
+    const businessId = await activeBusinessId();
+    if (!businessId) return { businessId: null, roles: [] };
+    const { data, error } = await getClient()
+      .from("user_roles")
+      .select("roles(code)")
+      .eq("business_id", businessId)
+      .eq("user_id", currentSession.user.id);
+    if (error) throw error;
+    return {
+      businessId,
+      roles: (data || []).map((entry) => entry.roles?.code).filter(Boolean),
+    };
   }
 
   async function touchSession() {
@@ -228,8 +256,12 @@
   }
 
   async function loadWorkspace() {
-    const [orders, products] = await Promise.all([loadOrders(), loadCatalog()]);
-    return { orders, products };
+    const [orders, products, access] = await Promise.all([
+      loadOrders(),
+      loadCatalog(),
+      loadAccessContext(),
+    ]);
+    return { orders, products, access };
   }
 
   async function saveOrder(order) {
@@ -412,6 +444,7 @@
     signOut,
     requestPasswordReset,
     updatePassword,
+    loadAccessContext,
     touchSession,
     loadStaff,
     inviteStaff,

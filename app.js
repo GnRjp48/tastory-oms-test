@@ -7,7 +7,9 @@ function isCloudMode() {
 }
 
 function cloudRoles() {
-  if (!isCloudMode() || !state?.cloudSession?.access_token) return ["admin"];
+  if (!isCloudMode()) return ["admin"];
+  if (state?.cloudRoleCodes?.length) return state.cloudRoleCodes;
+  if (!state?.cloudSession?.access_token) return [];
   try {
     const payload = state.cloudSession.access_token.split(".")[1]
       .replaceAll("-", "+")
@@ -111,6 +113,7 @@ const state = {
   cloudLoading: false,
   cloudError: "",
   cloudConnectedAt: null,
+  cloudRoleCodes: [],
   staff: [],
   staffFilter: "all",
   staffLoaded: false,
@@ -1608,6 +1611,7 @@ function bindEvents() {
       CLOUD?.unsubscribe();
       CLOUD?.setProvider("local");
       state.cloudSession = null;
+      state.cloudRoleCodes = [];
       state.cloudError = "";
       appSettings = loadSettings();
       PRODUCTS = appSettings.products;
@@ -1624,6 +1628,7 @@ function bindEvents() {
   document.querySelector("[data-sign-out]")?.addEventListener("click", async () => {
     await CLOUD.signOut();
     state.cloudSession = null;
+    state.cloudRoleCodes = [];
     render();
   });
   document.querySelector("[data-import-local]")?.addEventListener("click", importLocalDataToCloud);
@@ -1971,6 +1976,7 @@ async function refreshCloudWorkspace({ quiet = false } = {}) {
     const workspace = await CLOUD.loadWorkspace();
     state.orders = workspace.orders;
     PRODUCTS = workspace.products;
+    state.cloudRoleCodes = workspace.access?.roles || [];
     appSettings = {
       ...appSettings,
       products: PRODUCTS,

@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v3.0.0-staff";
+const CACHE_NAME = "tastory-oms-v3.0.1-staff-access";
 const APP_SHELL = [
   "./",
   "./index.html",
