@@ -1,9 +1,10 @@
-const CACHE_NAME = "tastory-oms-v3.0.1-staff-access";
+const CACHE_NAME = "tastory-oms-v3.0.2-auth-callback";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./config.js",
+  "./auth-callback.js",
   "./supabase-client.js",
   "./app.js",
   "./manifest.webmanifest",

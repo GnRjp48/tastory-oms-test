@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tastory Auth Callback Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body class="bg-cream text-ink">
+    <div id="app" class="mx-auto min-h-screen max-w-3xl pb-28"></div>
+    <div id="toast-region"></div>
+    <script>
+      window.TASTORY_CONFIG = {
+        supabaseUrl: "https://testproject.supabase.co",
+        supabasePublishableKey: "test-key",
+        defaultProvider: "local",
+      };
+      const params = new URLSearchParams(location.search);
+      if (params.get("seed") === "jane") {
+        localStorage.setItem("tastory-oms-data-provider-v2", "local");
+        localStorage.setItem("sb-testproject-auth-token", JSON.stringify({
+          user: { id: "jane-user", email: "tastory4u@gmail.com" },
+        }));
+      }
+      window.supabase = {
+        createClient() {
+          const invitedSession = {
+            access_token: "invited-access",
+            user: {
+              id: "invited-user",
+              email: "staff@example.com",
+              user_metadata: { full_name: "Aisha Staff" },
+            },
+          };
+          function query(table) {
+            const response = table === "users"
+              ? { data: { active_business_id: "tastory-business" }, error: null }
+              : table === "user_roles"
+                ? { data: [{ roles: { code: "sales_staff" } }], error: null }
+                : { data: [], error: null };
+            const builder = {
+              select() { return builder; },
+              eq() { return builder; },
+              is() { return builder; },
+              order() { return builder; },
+              single() { return Promise.resolve(response); },
+              then(resolve, reject) { return Promise.resolve(response).then(resolve, reject); },
+            };
+            return builder;
+          }
+          return {
+            auth: {
+              async setSession() {
+                localStorage.setItem("test-auth-session", JSON.stringify(invitedSession));
+                return { data: { session: invitedSession }, error: null };
+              },
+              async getSession() {
+                const saved = JSON.parse(localStorage.getItem("test-auth-session") || "null");
+                return { data: { session: saved }, error: null };
+              },
+              async updateUser() {
+                return { data: { user: invitedSession.user }, error: null };
+              },
+              async signOut() {
+                localStorage.removeItem("test-auth-session");
+                return { error: null };
+              },
+            },
+            from(table) {
+              return query(table);
+            },
+            async rpc() {
+              return { data: null, error: null };
+            },
+            channel() {
+              const channel = {
+                on() { return channel; },
+                subscribe() { return channel; },
+              };
+              return channel;
+            },
+            removeChannel() {},
+          };
+        },
+      };
+    </script>
+    <script src="../auth-callback.js"></script>
+    <script src="../supabase-client.js"></script>
+    <script src="../app.js"></script>
+    <script>
+      if (params.get("autosubmit") === "1") {
+        setTimeout(() => {
+          const form = document.querySelector("#password-update-form");
+          if (!form) return;
+          form.elements.password.value = "DevelopmentPassword123!";
+          form.requestSubmit();
+        }, 100);
+      }
+    </script>
+  </body>
+</html>

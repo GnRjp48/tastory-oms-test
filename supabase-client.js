@@ -3,11 +3,19 @@
   const BACKUP_KEY = "tastory-oms-backup-before-supabase-v1";
   const ORDER_KEY = "tastory-oms-orders-v1";
   const SETTINGS_KEY = "tastory-oms-settings-v1";
+  const PASSWORD_SETUP_KEY = "tastory-oms-password-setup-v1";
   const config = window.TASTORY_CONFIG || {};
+  const authCallback = window.TastoryAuthCallback;
+  const initialCallback = authCallback?.parse(location.href) || { active: false };
 
   let client = null;
   let channel = null;
   let realtimeTimer = null;
+
+  if (initialCallback.active) {
+    setProvider("supabase");
+    authCallback.clearCachedSession(localStorage, config.supabaseUrl);
+  }
 
   function provider() {
     return localStorage.getItem(PROVIDER_KEY) || config.defaultProvider || "local";
@@ -26,10 +34,38 @@
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
       },
     });
     return client;
+  }
+
+  async function processAuthCallback() {
+    if (!initialCallback.active) return { session: null, mode: "" };
+    const result = await authCallback.exchange(getClient(), initialCallback);
+    setProvider("supabase");
+    if (result.mode && result.session?.user?.id) {
+      localStorage.setItem(PASSWORD_SETUP_KEY, JSON.stringify({
+        userId: result.session.user.id,
+        mode: result.mode,
+      }));
+    }
+    history.replaceState({}, "", authCallback.cleanUrl(location.href, result.mode));
+    return result;
+  }
+
+  function pendingPasswordSetup(currentSession) {
+    if (!currentSession?.user?.id) return "";
+    try {
+      const pending = JSON.parse(localStorage.getItem(PASSWORD_SETUP_KEY));
+      return pending?.userId === currentSession.user.id ? pending.mode || "" : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function completePasswordSetup() {
+    localStorage.removeItem(PASSWORD_SETUP_KEY);
   }
 
   async function session() {
@@ -439,6 +475,9 @@
   window.TastoryCloud = {
     provider,
     setProvider,
+    processAuthCallback,
+    pendingPasswordSetup,
+    completePasswordSetup,
     session,
     signIn,
     signOut,

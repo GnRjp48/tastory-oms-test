@@ -6,6 +6,7 @@
     "validate:phase1": "node scripts/validate-phase1.mjs",
     "validate:phase2": "node scripts/validate-phase1.mjs",
     "validate:phase3": "node scripts/validate-phase1.mjs",
+    "test:auth": "node --test tests/auth-callback.test.js",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset",

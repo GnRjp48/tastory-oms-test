@@ -9,6 +9,8 @@ realtime behavior, data protection, and rollback controls are documented in
 [`docs/phase-2-scope.md`](docs/phase-2-scope.md). Admin staff management is
 documented in
 [`docs/phase-3-staff-management.md`](docs/phase-3-staff-management.md).
+The invitation and password-recovery callback correction is documented in
+[`docs/phase-3-auth-callback-fix.md`](docs/phase-3-auth-callback-fix.md).
 
 ## Features
 

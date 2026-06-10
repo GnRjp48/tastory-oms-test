@@ -35,6 +35,14 @@ function canUse(capability) {
   return (allowed[capability] || []).some((role) => roles.includes(role));
 }
 
+function currentUserName() {
+  if (!isCloudMode()) return "Jane";
+  const user = state?.cloudSession?.user;
+  return user?.user_metadata?.full_name
+    || user?.email?.split("@")[0]
+    || "Tastory Staff";
+}
+
 const DEFAULT_PRODUCTS = [
   { id: "classic-35", flavor: "Classic", size: "35g", price: 4.5, tone: "bg-amber-100 text-amber-800" },
   { id: "classic-150", flavor: "Classic", size: "150g", price: 15, tone: "bg-amber-100 text-amber-800" },
@@ -114,6 +122,8 @@ const state = {
   cloudError: "",
   cloudConnectedAt: null,
   cloudRoleCodes: [],
+  authMode: new URLSearchParams(location.search).get("auth") || "",
+  authNeedsPassword: false,
   staff: [],
   staffFilter: "all",
   staffLoaded: false,
@@ -491,20 +501,23 @@ function overviewMetric(label, value, tone) {
 }
 
 function renderLogin() {
-  const resetMode = new URLSearchParams(location.search).get("auth") === "reset";
+  const passwordMode = state.authNeedsPassword;
+  const invitationMode = state.authMode === "invite";
   return `
     <main class="grid min-h-screen place-items-center px-5 py-10">
       <section class="page-enter w-full max-w-md rounded-3xl bg-white p-6 shadow-soft">
         <div class="mb-6">
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-orange">Tastory OMS</p>
-          <h1 class="mt-2 text-2xl font-extrabold text-forest">${resetMode ? "Choose a new password" : "Sign in to Supabase"}</h1>
-          <p class="mt-2 text-sm leading-6 text-stone-500">${resetMode
-            ? "Update the password for your Tastory account."
+          <h1 class="mt-2 text-2xl font-extrabold text-forest">${passwordMode ? "Choose a new password" : "Sign in to Supabase"}</h1>
+          <p class="mt-2 text-sm leading-6 text-stone-500">${passwordMode
+            ? invitationMode
+              ? "Set a password to finish activating your Tastory staff account."
+              : "Update the password for your Tastory account."
             : "Shared orders, pricing, and production updates across devices."}</p>
         </div>
         ${state.cloudError ? `<div class="mb-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">${escapeHtml(state.cloudError)}</div>` : ""}
         ${
-          resetMode
+          passwordMode
             ? `<form id="password-update-form" class="space-y-4">
                 <label><span class="label">New password</span><input class="field" name="password" type="password" minlength="10" required autocomplete="new-password" /></label>
                 <button class="min-h-12 w-full rounded-xl bg-forest px-5 text-sm font-extrabold text-white" type="submit">Update password</button>
@@ -594,8 +607,8 @@ function renderDashboard() {
   const overview = orderOverview(todayOrders);
 
   return `
-    ${header("Good morning, Jane", "Tastory OMS", `
-      <div class="grid h-11 w-11 place-items-center rounded-full bg-forest font-extrabold text-white shadow-soft">J</div>
+    ${header(`Good morning, ${escapeHtml(currentUserName())}`, "Tastory OMS", `
+      <div class="grid h-11 w-11 place-items-center rounded-full bg-forest font-extrabold text-white shadow-soft">${escapeHtml(currentUserName().charAt(0).toUpperCase())}</div>
     `)}
     <main class="page-enter space-y-6 px-5 md:px-8">
       ${cloudControlPanel()}
@@ -1565,7 +1578,7 @@ function renderOrderModal(order) {
 
 function render() {
   const app = document.querySelector("#app");
-  if (isCloudMode() && !state.cloudSession) {
+  if (isCloudMode() && (!state.cloudSession || state.authNeedsPassword)) {
     app.innerHTML = renderLogin();
     bindEvents();
     return;
@@ -2147,9 +2160,18 @@ async function handlePasswordUpdate(event) {
   const password = new FormData(event.currentTarget).get("password");
   try {
     await CLOUD.updatePassword(password);
+    CLOUD.completePasswordSetup();
+    state.authNeedsPassword = false;
+    state.authMode = "";
     history.replaceState({}, "", location.pathname);
     state.cloudSession = await CLOUD.session();
+    await CLOUD.touchSession();
     await refreshCloudWorkspace();
+    CLOUD.subscribe(async () => {
+      await refreshCloudWorkspace({ quiet: true });
+      render();
+    });
+    state.page = "dashboard";
     render();
     showToast("Password updated.");
   } catch (error) {
@@ -2180,14 +2202,28 @@ async function initializeApp() {
   state.cloudLoading = true;
   state.cloudError = "";
   try {
-    state.cloudSession = await CLOUD.session();
+    const callback = await CLOUD.processAuthCallback();
+    if (callback.session) {
+      state.cloudSession = callback.session;
+      state.authMode = callback.mode;
+      state.authNeedsPassword = ["invite", "recovery"].includes(callback.mode);
+    } else {
+      state.cloudSession = await CLOUD.session();
+      const pendingMode = CLOUD.pendingPasswordSetup(state.cloudSession);
+      if (pendingMode) {
+        state.authMode = pendingMode;
+        state.authNeedsPassword = true;
+      }
+    }
     if (state.cloudSession) {
-      await CLOUD.touchSession();
-      await refreshCloudWorkspace();
-      CLOUD.subscribe(async () => {
-        await refreshCloudWorkspace({ quiet: true });
-        render();
-      });
+      if (!state.authNeedsPassword) {
+        await CLOUD.touchSession();
+        await refreshCloudWorkspace();
+        CLOUD.subscribe(async () => {
+          await refreshCloudWorkspace({ quiet: true });
+          render();
+        });
+      }
     }
   } catch (error) {
     state.cloudError = error.message || "Could not initialize Supabase.";
