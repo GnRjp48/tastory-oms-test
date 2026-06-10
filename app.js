@@ -28,6 +28,7 @@ function canUse(capability) {
     archiveOrder: ["admin", "manager"],
     updateProduction: ["admin", "manager", "production_staff"],
     managePricing: ["admin"],
+    manageStaff: ["admin"],
   };
   return (allowed[capability] || []).some((role) => roles.includes(role));
 }
@@ -67,6 +68,12 @@ const QUICK_PRODUCTION_WORKFLOW = [
   "Delivered",
 ];
 const DELIVERY_METHODS = ["Self Delivery", "Friend Delivery", "Courier", "Customer Pickup"];
+const STAFF_ROLES = [
+  { code: "admin", name: "Admin", description: "Full access, including staff, pricing, settings, and reports." },
+  { code: "manager", name: "Manager", description: "Manages customers, orders, production, inventory, and reports." },
+  { code: "sales_staff", name: "Sales Staff", description: "Creates orders and updates customer details." },
+  { code: "production_staff", name: "Production Staff", description: "Views assigned production work and updates its status." },
+];
 
 let appSettings = loadSettings();
 let PRODUCTS = appSettings.products;
@@ -87,7 +94,7 @@ const ICONS = {
   trash: '<path d="M8 3V1h8v2h5v2H3V3h5Zm-2 4h12l-1 15H7L6 7Zm2.1 2 .7 11h6.4l.7-11H8.1Z"/>',
 };
 
-const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing"];
+const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing", "staff"];
 
 function initialPage() {
   const page = new URLSearchParams(window.location.search).get("page") || window.location.hash.replace("#", "");
@@ -104,6 +111,10 @@ const state = {
   cloudLoading: false,
   cloudError: "",
   cloudConnectedAt: null,
+  staff: [],
+  staffFilter: "all",
+  staffLoaded: false,
+  staffLoading: false,
 };
 
 function icon(name, classes = "h-5 w-5") {
@@ -445,6 +456,19 @@ function localDateKey(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDateTime(value) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return new Intl.DateTimeFormat("en-MY", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function dailyOrders(dateKey = localDateKey()) {
   return state.orders.filter((order) => localDateKey(order.createdAt) === dateKey);
 }
@@ -650,6 +674,12 @@ function renderDashboard() {
           <span class="mt-1 block text-xs">Managed by an administrator</span>
         </div>`}
       </section>
+      ${isCloudMode() && canUse("manageStaff") ? `<section>
+        <button data-nav="staff" class="w-full rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
+          <span class="block text-sm font-extrabold">Staff Management</span>
+          <span class="mt-1 block text-xs text-stone-500">Invite staff, manage roles, and review pending invitations</span>
+        </button>
+      </section>` : ""}
       <section>
         <div class="mb-3 flex items-end justify-between">
           <div>
@@ -1093,6 +1123,133 @@ function renderPricing() {
   `;
 }
 
+function staffStatusBadge(status) {
+  const styles = {
+    active: "bg-emerald-100 text-emerald-800",
+    pending: "bg-amber-100 text-amber-800",
+    inactive: "bg-stone-200 text-stone-700",
+  };
+  const labels = {
+    active: "Active",
+    pending: "Pending Invitation",
+    inactive: "Inactive",
+  };
+  return `<span class="rounded-full px-2.5 py-1 text-[10px] font-extrabold ${styles[status] || styles.inactive}">${labels[status] || status}</span>`;
+}
+
+function staffRoleOptions(selected) {
+  return STAFF_ROLES.map((role) =>
+    `<option value="${role.code}" ${role.code === selected ? "selected" : ""}>${role.name}</option>`
+  ).join("");
+}
+
+function staffCard(member) {
+  const pending = member.status === "pending";
+  return `
+    <article class="rounded-2xl border border-stone-100 bg-white p-4 shadow-soft">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-sm font-extrabold text-ink">${escapeHtml(member.full_name || member.email)}</h3>
+            ${member.is_current_user ? '<span class="rounded-full bg-sage px-2 py-0.5 text-[9px] font-extrabold text-forest">YOU</span>' : ""}
+          </div>
+          <p class="mt-1 break-all text-xs text-stone-500">${escapeHtml(member.email)}</p>
+        </div>
+        ${staffStatusBadge(member.status)}
+      </div>
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        <label>
+          <span class="label">Role</span>
+          <select class="field" data-staff-role="${member.user_id}" ${member.user_id ? "" : "disabled"}>
+            ${staffRoleOptions(member.role_code)}
+          </select>
+        </label>
+        <div class="rounded-xl bg-cream p-3 text-xs">
+          <p class="font-bold text-stone-500">${pending ? "Invitation sent" : "Last login"}</p>
+          <p class="mt-1 font-extrabold text-forest">${formatDateTime(pending ? member.invited_at : member.last_login_at)}</p>
+        </div>
+      </div>
+      <p class="mt-3 text-xs leading-5 text-stone-500">${escapeHtml(STAFF_ROLES.find((role) => role.code === member.role_code)?.description || "")}</p>
+      ${pending ? `
+        <div class="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+          <p class="font-extrabold">Acceptance status: Waiting for staff member</p>
+          <p class="mt-1">The account is assigned to Tastory but remains pending until the invitation is accepted.</p>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-2">
+          <button data-resend-invitation="${member.invitation_id}" class="min-h-11 rounded-xl bg-forest px-3 text-xs font-extrabold text-white">Resend</button>
+          <button data-cancel-invitation="${member.invitation_id}" class="min-h-11 rounded-xl border border-red-200 bg-white px-3 text-xs font-extrabold text-red-600">Cancel</button>
+        </div>
+      ` : `
+        <div class="mt-3 grid grid-cols-2 gap-2">
+          <button data-toggle-staff="${member.user_id}" data-active="${member.status === "active"}" ${member.is_current_user ? "disabled" : ""} class="min-h-11 rounded-xl px-3 text-xs font-extrabold ${member.status === "active" ? "border border-amber-200 bg-amber-50 text-amber-800" : "bg-forest text-white"} disabled:opacity-40">
+            ${member.status === "active" ? "Disable" : "Reactivate"}
+          </button>
+          <button data-remove-staff="${member.user_id}" ${member.is_current_user ? "disabled" : ""} class="min-h-11 rounded-xl border border-red-200 bg-white px-3 text-xs font-extrabold text-red-600 disabled:opacity-40">Remove</button>
+        </div>
+      `}
+    </article>
+  `;
+}
+
+function renderStaff() {
+  const filters = [
+    ["all", "All Staff"],
+    ["active", "Active"],
+    ["pending", "Pending"],
+    ["inactive", "Inactive"],
+  ];
+  const filtered = state.staff.filter((member) =>
+    state.staffFilter === "all" || member.status === state.staffFilter
+  );
+  const pending = filtered.filter((member) => member.status === "pending");
+  const staff = filtered.filter((member) => member.status !== "pending");
+
+  return `
+    ${header("Staff Management", "Admin only", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    <main class="page-enter space-y-5 px-5 md:px-8">
+      <section class="rounded-3xl bg-white p-5 shadow-soft">
+        <div class="mb-4">
+          <h2 class="text-lg font-extrabold text-forest">Invite New Staff</h2>
+          <p class="text-xs leading-5 text-stone-500">The invitation automatically assigns Tastory, the selected role, and the correct active business.</p>
+        </div>
+        <form id="staff-invite-form" class="space-y-4">
+          <label><span class="label">Full Name</span><input class="field" name="fullName" required autocomplete="name" /></label>
+          <label><span class="label">Email</span><input class="field" name="email" type="email" required autocomplete="email" /></label>
+          <label>
+            <span class="label">Role</span>
+            <select class="field" name="role">${staffRoleOptions("sales_staff")}</select>
+          </label>
+          <div id="invite-role-description" class="rounded-xl bg-sage p-3 text-xs leading-5 text-forest">${STAFF_ROLES.find((role) => role.code === "sales_staff").description}</div>
+          <button class="min-h-12 w-full rounded-xl bg-orange px-5 text-sm font-extrabold text-white" type="submit">Send Invitation</button>
+        </form>
+      </section>
+
+      <section>
+        <div class="hide-scrollbar flex gap-2 overflow-x-auto pb-2">
+          ${filters.map(([value, label]) => `<button data-staff-filter="${value}" class="shrink-0 rounded-full px-4 py-2 text-xs font-bold ${state.staffFilter === value ? "bg-forest text-white" : "border border-stone-200 bg-white text-stone-600"}">${label}</button>`).join("")}
+        </div>
+      </section>
+
+      ${state.staffLoading && !state.staffLoaded ? emptyState("Loading staff", "Checking Tastory staff and invitations.") : ""}
+      ${pending.length ? `<section>
+        <div class="mb-3">
+          <h2 class="text-lg font-extrabold text-forest">Pending Invitations</h2>
+          <p class="text-xs text-stone-500">${pending.length} waiting for acceptance</p>
+        </div>
+        <div class="space-y-3">${pending.map(staffCard).join("")}</div>
+      </section>` : ""}
+      ${staff.length ? `<section>
+        <div class="mb-3">
+          <h2 class="text-lg font-extrabold text-forest">Staff</h2>
+          <p class="text-xs text-stone-500">Active and inactive Tastory members</p>
+        </div>
+        <div class="space-y-3">${staff.map(staffCard).join("")}</div>
+      </section>` : ""}
+      ${state.staffLoaded && !filtered.length ? emptyState("No staff in this filter", "Choose another status or invite a staff member.") : ""}
+    </main>
+  `;
+}
+
 function pricingRow(product, index) {
   return `
     <div class="rounded-2xl border border-stone-200 p-3" data-pricing-row>
@@ -1413,6 +1570,9 @@ function render() {
   if (isCloudMode() && state.cloudSession) {
     if (state.page === "new-order" && !canUse("createOrder")) state.page = "orders";
     if (state.page === "pricing" && !canUse("managePricing")) state.page = "dashboard";
+    if (state.page === "staff" && !canUse("manageStaff")) state.page = "dashboard";
+  } else if (state.page === "staff") {
+    state.page = "dashboard";
   }
   const pages = {
     dashboard: renderDashboard,
@@ -1421,6 +1581,7 @@ function render() {
     production: renderProduction,
     summary: renderSummary,
     pricing: renderPricing,
+    staff: renderStaff,
   };
   app.innerHTML = `${pages[state.page]()}${bottomNav()}`;
   bindEvents();
@@ -1428,10 +1589,14 @@ function render() {
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
-function navigate(page) {
+async function navigate(page) {
   state.page = page;
   if (page !== "new-order") state.editingId = null;
   render();
+  if (page === "staff" && canUse("manageStaff")) {
+    await refreshStaff();
+    render();
+  }
 }
 
 function bindEvents() {
@@ -1462,6 +1627,32 @@ function bindEvents() {
     render();
   });
   document.querySelector("[data-import-local]")?.addEventListener("click", importLocalDataToCloud);
+  document.querySelector("#staff-invite-form")?.addEventListener("submit", handleStaffInvite);
+  document.querySelector("#staff-invite-form [name='role']")?.addEventListener("change", (event) => {
+    const role = STAFF_ROLES.find((item) => item.code === event.target.value);
+    document.querySelector("#invite-role-description").textContent = role?.description || "";
+  });
+  document.querySelectorAll("[data-staff-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.staffFilter = button.dataset.staffFilter;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-staff-role]").forEach((select) => {
+    select.addEventListener("change", () => changeStaffRole(select.dataset.staffRole, select.value));
+  });
+  document.querySelectorAll("[data-toggle-staff]").forEach((button) => {
+    button.addEventListener("click", () => toggleStaffStatus(button.dataset.toggleStaff, button.dataset.active === "true"));
+  });
+  document.querySelectorAll("[data-remove-staff]").forEach((button) => {
+    button.addEventListener("click", () => removeStaffMember(button.dataset.removeStaff));
+  });
+  document.querySelectorAll("[data-resend-invitation]").forEach((button) => {
+    button.addEventListener("click", () => resendStaffInvitation(button.dataset.resendInvitation));
+  });
+  document.querySelectorAll("[data-cancel-invitation]").forEach((button) => {
+    button.addEventListener("click", () => cancelStaffInvitation(button.dataset.cancelInvitation));
+  });
 
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.addEventListener("click", () => navigate(button.dataset.nav));
@@ -1794,6 +1985,116 @@ async function refreshCloudWorkspace({ quiet = false } = {}) {
   }
 }
 
+async function refreshStaff() {
+  if (!isCloudMode() || !canUse("manageStaff")) return;
+  state.staffLoading = true;
+  try {
+    state.staff = await CLOUD.loadStaff();
+    state.staffLoaded = true;
+  } catch (error) {
+    showToast(error.message || "Could not load staff.", "error");
+  } finally {
+    state.staffLoading = false;
+  }
+}
+
+async function handleStaffInvite(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  submitButton.textContent = "Sending...";
+  try {
+    await CLOUD.inviteStaff({
+      full_name: String(data.get("fullName") || "").trim(),
+      email: String(data.get("email") || "").trim(),
+      role_code: String(data.get("role") || ""),
+    });
+    form.reset();
+    form.elements.role.value = "sales_staff";
+    await refreshStaff();
+    render();
+    showToast("Staff invitation sent.");
+  } catch (error) {
+    showToast(error.message || "Could not send invitation.", "error");
+    submitButton.disabled = false;
+    submitButton.textContent = "Send Invitation";
+  }
+}
+
+async function changeStaffRole(userId, roleCode) {
+  const member = state.staff.find((item) => item.user_id === userId);
+  const role = STAFF_ROLES.find((item) => item.code === roleCode);
+  if (!member || !role) return;
+  try {
+    await CLOUD.changeStaffRole(userId, roleCode);
+    await refreshStaff();
+    render();
+    showToast(`${member.full_name} is now ${role.name}.`);
+  } catch (error) {
+    await refreshStaff();
+    render();
+    showToast(error.message || "Could not change role.", "error");
+  }
+}
+
+async function toggleStaffStatus(userId, currentlyActive) {
+  const member = state.staff.find((item) => item.user_id === userId);
+  if (!member) return;
+  const action = currentlyActive ? "disable" : "reactivate";
+  if (!window.confirm(`${action === "disable" ? "Disable" : "Reactivate"} ${member.full_name}?`)) return;
+  try {
+    await CLOUD.setStaffActive(userId, !currentlyActive);
+    await refreshStaff();
+    render();
+    showToast(`${member.full_name} ${currentlyActive ? "disabled" : "reactivated"}.`);
+  } catch (error) {
+    showToast(error.message || `Could not ${action} staff.`, "error");
+  }
+}
+
+async function removeStaffMember(userId) {
+  const member = state.staff.find((item) => item.user_id === userId);
+  if (!member) return;
+  if (!window.confirm(`Remove ${member.full_name} from Tastory? Their historical activity will be retained.`)) return;
+  try {
+    await CLOUD.removeStaff(userId);
+    await refreshStaff();
+    render();
+    showToast(`${member.full_name} removed from Tastory.`);
+  } catch (error) {
+    showToast(error.message || "Could not remove staff.", "error");
+  }
+}
+
+async function resendStaffInvitation(invitationId) {
+  const invitation = state.staff.find((item) => item.invitation_id === invitationId);
+  if (!invitation) return;
+  try {
+    await CLOUD.resendInvitation(invitationId);
+    await refreshStaff();
+    render();
+    showToast(`Invitation resent to ${invitation.email}.`);
+  } catch (error) {
+    showToast(error.message || "Could not resend invitation.", "error");
+  }
+}
+
+async function cancelStaffInvitation(invitationId) {
+  const invitation = state.staff.find((item) => item.invitation_id === invitationId);
+  if (!invitation) return;
+  if (!window.confirm(`Cancel the invitation for ${invitation.email}?`)) return;
+  try {
+    await CLOUD.cancelInvitation(invitationId);
+    await refreshStaff();
+    render();
+    showToast("Pending invitation cancelled.");
+  } catch (error) {
+    showToast(error.message || "Could not cancel invitation.", "error");
+  }
+}
+
 async function handleLogin(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
@@ -1805,6 +2106,7 @@ async function handleLogin(event) {
       String(data.get("email") || "").trim(),
       String(data.get("password") || ""),
     );
+    await CLOUD.touchSession();
     await refreshCloudWorkspace();
     CLOUD.subscribe(async () => {
       await refreshCloudWorkspace({ quiet: true });
@@ -1874,6 +2176,7 @@ async function initializeApp() {
   try {
     state.cloudSession = await CLOUD.session();
     if (state.cloudSession) {
+      await CLOUD.touchSession();
       await refreshCloudWorkspace();
       CLOUD.subscribe(async () => {
         await refreshCloudWorkspace({ quiet: true });

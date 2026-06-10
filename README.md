@@ -1,12 +1,14 @@
-# Tastory OMS v1.1.1
+# Tastory OMS
 
 A mobile-first, single-page order management system for Tastory, a small home-based granola business.
 
-Supabase Phase 1 backend infrastructure is documented in
+Supabase infrastructure is documented in
 [`docs/supabase-phase-1.md`](docs/supabase-phase-1.md). The current UI continues
 to use browser storage by default. The opt-in Supabase frontend integration,
 realtime behavior, data protection, and rollback controls are documented in
-[`docs/phase-2-scope.md`](docs/phase-2-scope.md).
+[`docs/phase-2-scope.md`](docs/phase-2-scope.md). Admin staff management is
+documented in
+[`docs/phase-3-staff-management.md`](docs/phase-3-staff-management.md).
 
 ## Features
 
@@ -26,16 +28,17 @@ realtime behavior, data protection, and rollback controls are documented in
 - Searchable and filterable order list
 - Order details, editing, deletion, and quick production status updates
 - Production summary by product, pack size, and workflow stage
+- Supabase email/password authentication and password reset
+- Admin-only staff invitations, roles, activation, removal, and invitation tracking
+- Realtime order updates across signed-in devices in Supabase mode
 - Local browser storage with sample data on first launch
 - Responsive bottom navigation designed for Android phones
 
-## v1.1.1 Scope
+## Data Modes
 
-- Local storage only
-- No Google Sheets integration
-- No backend
-- No Hermes integration
-- No login system
+- Local mode remains the default and stores data in the current browser.
+- Supabase mode supports authenticated, shared, realtime business data.
+- Google Sheets and Hermes are not connected.
 
 ## Install on Android
 
@@ -89,17 +92,25 @@ Then visit `http://localhost:8000` (Python) or the URL shown by `serve`.
 
 ## Data Storage
 
-Orders are stored in the browser under the local storage key:
+Local mode stores orders in the browser under:
 
 ```text
 tastory-oms-orders-v1
 ```
 
-Sample orders are added only when no saved data exists. To restore the sample data, clear the site's local storage and reload the page.
+Supabase mode stores business data in the linked Supabase project. Switching
+providers does not delete the LocalStorage copy.
 
 ## Product Prices
 
-Prices are currently configured near the top of `app.js` in the `PRODUCTS` array. Update those values to match Tastory's current pricing.
+Admins can update products, packaging sizes, and prices from Pricing. Supabase
+mode saves changes to the shared product catalog; local mode saves them in
+browser settings.
+
+## Staff Invitations
+
+Supabase's default email service has a low rate limit. Configure custom SMTP in
+Supabase before relying on staff invitations for production use.
 
 ## Project Files
 
@@ -108,5 +119,8 @@ Prices are currently configured near the top of `app.js` in the `PRODUCTS` array
 |-- index.html
 |-- styles.css
 |-- app.js
+|-- supabase-client.js
+|-- supabase/
+|-- docs/
 `-- README.md
 ```

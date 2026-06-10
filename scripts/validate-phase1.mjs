@@ -39,6 +39,7 @@ const requiredTables = [
   "activity_logs",
   "notification_outbox",
   "migration_staging",
+  "staff_invitations",
 ];
 const requiredFunctions = [
   "custom_access_token_hook",
@@ -49,6 +50,10 @@ const requiredFunctions = [
   "save_oms_catalog",
   "save_oms_order",
   "archive_oms_order",
+  "list_staff_management",
+  "change_staff_role",
+  "set_staff_active",
+  "remove_staff_member",
 ];
 const rlsTables = [
   "businesses",

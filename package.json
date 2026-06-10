@@ -5,6 +5,7 @@
   "scripts": {
     "validate:phase1": "node scripts/validate-phase1.mjs",
     "validate:phase2": "node scripts/validate-phase1.mjs",
+    "validate:phase3": "node scripts/validate-phase1.mjs",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset",

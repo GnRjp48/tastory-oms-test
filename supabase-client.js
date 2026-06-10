@@ -60,6 +60,85 @@
     if (error) throw error;
   }
 
+  function activeBusinessId() {
+    return session().then((currentSession) => {
+      if (!currentSession?.access_token) return null;
+      const payload = currentSession.access_token.split(".")[1]
+        .replaceAll("-", "+")
+        .replaceAll("_", "/");
+      const padded = payload + "=".repeat((4 - (payload.length % 4)) % 4);
+      return JSON.parse(atob(padded)).active_business_id || null;
+    });
+  }
+
+  async function touchSession() {
+    const { error } = await getClient().rpc("touch_staff_session");
+    if (error) throw error;
+  }
+
+  async function loadStaff() {
+    const { data, error } = await getClient().rpc("list_staff_management");
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function invitationAction(action, values) {
+    const businessId = await activeBusinessId();
+    if (!businessId) throw new Error("Active Tastory business is unavailable.");
+    const { data, error } = await getClient().functions.invoke("invite-user", {
+      body: {
+        action,
+        business_id: businessId,
+        ...values,
+      },
+    });
+    if (error) {
+      const context = error.context;
+      if (context?.json) {
+        const details = await context.json().catch(() => null);
+        throw new Error(details?.error || error.message);
+      }
+      throw error;
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function inviteStaff(values) {
+    return invitationAction("invite", values);
+  }
+
+  async function resendInvitation(invitationId) {
+    return invitationAction("resend", { invitation_id: invitationId });
+  }
+
+  async function cancelInvitation(invitationId) {
+    return invitationAction("cancel", { invitation_id: invitationId });
+  }
+
+  async function changeStaffRole(userId, roleCode) {
+    const { error } = await getClient().rpc("change_staff_role", {
+      requested_user_id: userId,
+      requested_role_code: roleCode,
+    });
+    if (error) throw error;
+  }
+
+  async function setStaffActive(userId, active) {
+    const { error } = await getClient().rpc("set_staff_active", {
+      requested_user_id: userId,
+      requested_active: active,
+    });
+    if (error) throw error;
+  }
+
+  async function removeStaff(userId) {
+    const { error } = await getClient().rpc("remove_staff_member", {
+      requested_user_id: userId,
+    });
+    if (error) throw error;
+  }
+
   function paymentLabel(value) {
     return {
       unpaid: "Unpaid",
@@ -333,6 +412,14 @@
     signOut,
     requestPasswordReset,
     updatePassword,
+    touchSession,
+    loadStaff,
+    inviteStaff,
+    resendInvitation,
+    cancelInvitation,
+    changeStaffRole,
+    setStaffActive,
+    removeStaff,
     loadWorkspace,
     saveOrder,
     archiveOrder,
