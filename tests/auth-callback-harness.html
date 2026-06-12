@@ -5,9 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tastory Auth Callback Harness</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              forest: "#1f3d2b",
+              sage: "#dce8da",
+              cream: "#f8f5ed",
+              oat: "#eadfca",
+              cocoa: "#755744",
+              orange: "#e57e3d",
+              ink: "#243029",
+            },
+            boxShadow: {
+              soft: "0 12px 35px rgba(41, 54, 45, 0.09)",
+            },
+          },
+        },
+      };
+    </script>
     <link rel="stylesheet" href="../styles.css" />
   </head>
-  <body class="bg-cream text-ink">
+  <body class="overflow-x-hidden bg-cream text-ink">
     <div id="app" class="mx-auto min-h-screen max-w-3xl pb-28"></div>
     <div id="toast-region"></div>
     <script>
@@ -23,16 +43,21 @@
           user: { id: "jane-user", email: "tastory4u@gmail.com" },
         }));
       }
-      if (params.get("seed") === "removed") {
+      if (["admin", "sales", "removed", "network"].includes(params.get("seed"))) {
         localStorage.setItem("tastory-oms-data-provider-v2", "supabase");
         localStorage.setItem("test-auth-session", JSON.stringify({
-          access_token: "removed-access",
+          access_token: `${params.get("seed")}-access`,
           user: {
-            id: "removed-user",
-            email: "removed@example.com",
-            user_metadata: { full_name: "Removed Staff" },
+            id: `${params.get("seed")}-user`,
+            email: `${params.get("seed")}@example.com`,
+            user_metadata: {
+              full_name: params.get("seed") === "admin" ? "Jane Lim" : "Aisha Staff",
+            },
           },
         }));
+      }
+      if (params.get("seed") === "expired") {
+        localStorage.setItem("tastory-oms-authenticated-v1", "true");
       }
       window.supabase = {
         createClient() {
@@ -45,11 +70,55 @@
             },
           };
           function query(table) {
+            const products = [
+              { id: "classic-150", sku: "CLASSIC-150", size_label: "150g", products: { name: "Classic", is_active: true }, pricing: [{ amount: 15 }] },
+              { id: "matcha-150", sku: "MATCHA-150", size_label: "150g", products: { name: "Matcha", is_active: true }, pricing: [{ amount: 18 }] },
+              { id: "chocolate-35", sku: "CHOC-35", size_label: "35g", products: { name: "Chocolate", is_active: true }, pricing: [{ amount: 5.5 }] },
+            ];
+            const orders = [
+              {
+                id: "order-1", order_number: "TAS-1082", version: 1,
+                customers: { name: "Aina Rahman", phone: "012-345 6789", default_address: "Taman Melawati", notes: "Less sweet" },
+                production_statuses: { id: "ready", name: "Ready For Delivery", code: "ready_for_delivery" },
+                delivery_methods: { name: "Self Delivery" },
+                order_items: [{ id: "i1", product_variant_id: "classic-150", product_name_snapshot: "Classic", variant_name_snapshot: "150g", quantity: 2, unit_price: 15 }],
+                latest_delivery_date: new Date().toISOString().slice(0, 10), payment_status: "paid", payment_method: "DuitNow",
+                amount_paid: 30, delivery_address: "Taman Melawati, Kuala Lumpur", delivery_person: "Jane",
+                tracking_number: "", actual_delivery_at: null, batch_id: "B-0612-A", customer_notes_snapshot: "Less sweet",
+                remarks: "Call before delivery", created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+              },
+              {
+                id: "order-2", order_number: "TAS-1083", version: 1,
+                customers: { name: "Mei Ling", phone: "017-882 1044", default_address: "Subang Jaya", notes: "No raisins" },
+                production_statuses: { id: "baking", name: "Baking", code: "baking" },
+                delivery_methods: { name: "Courier" },
+                order_items: [{ id: "i2", product_variant_id: "matcha-150", product_name_snapshot: "Matcha", variant_name_snapshot: "150g", quantity: 3, unit_price: 18 }],
+                latest_delivery_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), payment_status: "deposit_paid", payment_method: "Bank Transfer",
+                amount_paid: 20, delivery_address: "Subang Jaya, Selangor", delivery_person: "",
+                tracking_number: "", actual_delivery_at: null, batch_id: "B-0612-B", customer_notes_snapshot: "No raisins",
+                remarks: "", created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+              },
+              {
+                id: "order-3", order_number: "TAS-1084", version: 1,
+                customers: { name: "Farah Aziz", phone: "019-440 2218", default_address: "Ampang", notes: "Leave at guard house" },
+                production_statuses: { id: "waiting", name: "Waiting For Batch", code: "waiting_for_batch" },
+                delivery_methods: { name: "Grab" },
+                order_items: [{ id: "i3", product_variant_id: "chocolate-35", product_name_snapshot: "Chocolate", variant_name_snapshot: "35g", quantity: 6, unit_price: 5.5 }],
+                latest_delivery_date: new Date(Date.now() + 172800000).toISOString().slice(0, 10), payment_status: "unpaid", payment_method: "COD",
+                amount_paid: 0, delivery_address: "Ampang, Selangor", delivery_person: "",
+                tracking_number: "", actual_delivery_at: null, batch_id: "", customer_notes_snapshot: "Leave at guard house",
+                remarks: "", created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+              },
+            ];
             const response = table === "users"
               ? { data: { active_business_id: "tastory-business" }, error: null }
               : table === "user_roles"
-                ? { data: [{ roles: { code: "sales_staff" } }], error: null }
-                : { data: [], error: null };
+                ? { data: [{ roles: { code: params.get("seed") === "admin" ? "admin" : "sales_staff" } }], error: null }
+                : table === "product_variants"
+                  ? { data: products, error: null }
+                  : table === "orders"
+                    ? { data: orders, error: null }
+                    : { data: [], error: null };
             const builder = {
               select() { return builder; },
               eq() { return builder; },
@@ -73,6 +142,21 @@
               async updateUser() {
                 return { data: { user: invitedSession.user }, error: null };
               },
+              async signInWithPassword({ email }) {
+                const session = {
+                  access_token: "signed-in-access",
+                  user: {
+                    id: "signed-in-user",
+                    email,
+                    user_metadata: { full_name: "Jane Lim" },
+                  },
+                };
+                localStorage.setItem("test-auth-session", JSON.stringify(session));
+                return { data: { session }, error: null };
+              },
+              async resetPasswordForEmail() {
+                return { error: null };
+              },
               async signOut() {
                 localStorage.removeItem("test-auth-session");
                 return { error: null };
@@ -84,6 +168,9 @@
             async rpc(name) {
               if (params.get("seed") === "removed" && name === "touch_staff_session") {
                 return { data: null, error: new Error("This staff account is inactive") };
+              }
+              if (params.get("seed") === "network" && name === "touch_staff_session") {
+                return { data: null, error: new Error("Failed to fetch") };
               }
               return { data: null, error: null };
             },
@@ -101,6 +188,7 @@
     </script>
     <script src="../auth-callback.js"></script>
     <script src="../staff-access.js"></script>
+    <script src="../ux-access.js"></script>
     <script src="../supabase-client.js"></script>
     <script src="../app.js"></script>
     <script>
@@ -111,6 +199,17 @@
           form.elements.password.value = "DevelopmentPassword123!";
           form.requestSubmit();
         }, 100);
+      }
+      if (params.get("menu") === "1") {
+        setTimeout(() => document.querySelector("[data-profile-menu]")?.click(), 250);
+      }
+      if (params.get("reset") === "1") {
+        setTimeout(() => {
+          const form = document.querySelector("#login-form");
+          if (!form) return;
+          form.elements.email.value = "jane@example.com";
+          document.querySelector("[data-reset-password]")?.click();
+        }, 250);
       }
     </script>
   </body>

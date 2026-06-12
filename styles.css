@@ -16,6 +16,16 @@ body {
   min-height: 100dvh;
 }
 
+.login-shell {
+  background:
+    radial-gradient(circle at 85% 12%, rgba(229, 126, 61, 0.18), transparent 28%),
+    radial-gradient(circle at 10% 88%, rgba(220, 232, 218, 0.9), transparent 32%);
+}
+
+.profile-menu-position {
+  right: 1rem;
+}
+
 button,
 input,
 select,
@@ -107,6 +117,10 @@ button {
 }
 
 @media (min-width: 768px) {
+  .profile-menu-position {
+    right: max(1rem, calc((100vw - 48rem) / 2 + 1rem));
+  }
+
   body {
     background:
       radial-gradient(circle at 15% 10%, rgba(220, 232, 218, 0.8), transparent 30%),

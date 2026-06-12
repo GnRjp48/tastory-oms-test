@@ -2,13 +2,14 @@
 const SETTINGS_KEY = "tastory-oms-settings-v1";
 const CLOUD = window.TastoryCloud;
 const STAFF_ACCESS = window.TastoryStaffAccess;
+const UX_ACCESS = window.TastoryUxAccess;
+const AUTH_SEEN_KEY = "tastory-oms-authenticated-v1";
 
 function isCloudMode() {
   return CLOUD?.provider() === "supabase";
 }
 
 function cloudRoles() {
-  if (!isCloudMode()) return ["admin"];
   if (state?.cloudRoleCodes?.length) return state.cloudRoleCodes;
   if (!state?.cloudSession?.access_token) return [];
   try {
@@ -32,6 +33,7 @@ function canUse(capability) {
     updateProduction: ["admin", "manager", "production_staff"],
     managePricing: ["admin"],
     manageStaff: ["admin"],
+    manageSettings: ["admin"],
   };
   return (allowed[capability] || []).some((role) => roles.includes(role));
 }
@@ -107,9 +109,10 @@ const ICONS = {
   bag: '<path d="M7 7V6a5 5 0 0 1 10 0v1h3l-1 15H5L4 7h3Zm2 0h6V6a3 3 0 0 0-6 0v1Zm-2.9 2 .7 11h10.4l.7-11H6.1Z"/>',
   edit: '<path d="m16.9 2.7 4.4 4.4L8.4 20H4v-4.4L16.9 2.7Zm0 2.8L6 16.4V18h1.6L18.5 7.1l-1.6-1.6Z"/>',
   trash: '<path d="M8 3V1h8v2h5v2H3V3h5Zm-2 4h12l-1 15H7L6 7Zm2.1 2 .7 11h6.4l.7-11H8.1Z"/>',
+  settings: '<path d="M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L15 3h-4l-.4 3a8 8 0 0 0-1.7 1L6.5 6l-2 3.4L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.4 3h4l.4-3a8 8 0 0 0 1.7-1l2.4 1 2-3.4L19.4 13ZM13 18.8h-2l-.3-2.3-.7-.3a6 6 0 0 1-1.4-.8L8 15l-1.9.8-1-1.7 1.7-1.3-.1-.8a5.4 5.4 0 0 1 0-1.6l.1-.8-1.7-1.3 1-1.7 1.9.8.6-.4a6 6 0 0 1 1.4-.8l.7-.3L11 5h2l.3 2.3.7.3a6 6 0 0 1 1.4.8l.6.4 1.9-.8 1 1.7-1.7 1.3.1.8a5.4 5.4 0 0 1 0 1.6l-.1.8 1.7 1.3-1 1.7-1.9-.8-.6.4a6 6 0 0 1-1.4.8l-.7.3-.3 2.3ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/>',
 };
 
-const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing", "staff"];
+const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing", "staff", "settings"];
 
 function initialPage() {
   const page = new URLSearchParams(window.location.search).get("page") || window.location.hash.replace("#", "");
@@ -125,6 +128,7 @@ const state = {
   cloudSession: null,
   cloudLoading: false,
   cloudError: "",
+  authNotice: "",
   cloudConnectedAt: null,
   cloudRoleCodes: [],
   authMode: new URLSearchParams(location.search).get("auth") || "",
@@ -133,6 +137,7 @@ const state = {
   staffFilter: "all",
   staffLoaded: false,
   staffLoading: false,
+  profileMenuOpen: false,
 };
 
 function icon(name, classes = "h-5 w-5") {
@@ -455,9 +460,9 @@ function header(title, eyebrow, action = "") {
   return `
     <header class="px-5 pb-5 pt-7 md:px-8">
       <div class="flex items-center justify-between gap-4">
-        <div>
-          <p class="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-orange">${eyebrow}</p>
-          <h1 class="text-2xl font-extrabold tracking-tight text-forest">${title}</h1>
+        <div class="min-w-0">
+          <p class="mb-1 truncate text-xs font-bold uppercase tracking-[0.18em] text-orange">${eyebrow}</p>
+          <h1 class="text-2xl font-extrabold leading-tight tracking-tight text-forest">${title}</h1>
         </div>
         ${action}
       </div>
@@ -509,64 +514,99 @@ function renderLogin() {
   const passwordMode = state.authNeedsPassword;
   const invitationMode = state.authMode === "invite";
   return `
-    <main class="grid min-h-screen place-items-center px-5 py-10">
-      <section class="page-enter w-full max-w-md rounded-3xl bg-white p-6 shadow-soft">
-        <div class="mb-6">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-orange">Tastory OMS</p>
-          <h1 class="mt-2 text-2xl font-extrabold text-forest">${passwordMode ? "Choose a new password" : "Sign in to Supabase"}</h1>
-          <p class="mt-2 text-sm leading-6 text-stone-500">${passwordMode
+    <main class="login-shell grid min-h-screen place-items-center px-5 py-10">
+      <section class="page-enter w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-soft">
+        <div class="bg-forest px-7 py-8 text-white">
+          <p class="text-xs font-extrabold uppercase tracking-[0.22em] text-orange">Tastory OMS</p>
+          <h1 class="mt-3 text-3xl font-extrabold tracking-tight">${passwordMode ? "Set your password" : "Welcome back"}</h1>
+          <p class="mt-2 text-sm leading-6 text-white/70">${passwordMode
             ? invitationMode
               ? "Set a password to finish activating your Tastory staff account."
               : "Update the password for your Tastory account."
-            : "Shared orders, pricing, and production updates across devices."}</p>
+            : "Sign in to manage today's orders and production."}</p>
         </div>
-        ${state.cloudError ? `<div class="mb-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">${escapeHtml(state.cloudError)}</div>` : ""}
-        ${
-          passwordMode
-            ? `<form id="password-update-form" class="space-y-4">
-                <label><span class="label">New password</span><input class="field" name="password" type="password" minlength="10" required autocomplete="new-password" /></label>
-                <button class="min-h-12 w-full rounded-xl bg-forest px-5 text-sm font-extrabold text-white" type="submit">Update password</button>
-              </form>`
-            : `<form id="login-form" class="space-y-4">
-                <label><span class="label">Email</span><input class="field" name="email" type="email" required autocomplete="email" value="tastory4u@gmail.com" /></label>
-                <label><span class="label">Password</span><input class="field" name="password" type="password" required autocomplete="current-password" /></label>
-                <button class="min-h-12 w-full rounded-xl bg-forest px-5 text-sm font-extrabold text-white" type="submit">${state.cloudLoading ? "Signing in..." : "Sign in"}</button>
-              </form>
-              <button data-reset-password class="mt-4 w-full py-2 text-sm font-bold text-orange">Send password reset email</button>`
-        }
-        <button data-use-local class="mt-5 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-bold text-stone-600">Return to LocalStorage mode</button>
+        <div class="p-7">
+          ${state.cloudError ? `<div role="alert" class="mb-5 rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-700">${escapeHtml(state.cloudError)}</div>` : ""}
+          ${state.authNotice ? `<div role="status" class="mb-5 rounded-2xl bg-emerald-50 p-3 text-sm font-bold leading-5 text-emerald-700">${escapeHtml(state.authNotice)}</div>` : ""}
+          ${
+            passwordMode
+              ? `<form id="password-update-form" class="space-y-5">
+                  <label><span class="label">New password</span><input class="field min-h-12" name="password" type="password" minlength="10" required autocomplete="new-password" /></label>
+                  <button class="min-h-12 w-full rounded-xl bg-orange px-5 text-sm font-extrabold text-white" type="submit">Save password</button>
+                </form>`
+              : `<form id="login-form" class="space-y-5">
+                  <label><span class="label">Email</span><input class="field min-h-12" name="email" type="email" required autocomplete="email" inputmode="email" /></label>
+                  <label><span class="label">Password</span><input class="field min-h-12" name="password" type="password" required autocomplete="current-password" /></label>
+                  <button class="min-h-12 w-full rounded-xl bg-orange px-5 text-sm font-extrabold text-white disabled:opacity-60" type="submit" ${state.cloudLoading ? "disabled" : ""}>${state.cloudLoading ? "Signing in..." : "Sign In"}</button>
+                </form>
+                <button data-reset-password class="mt-4 min-h-11 w-full text-sm font-bold text-forest">Forgot Password?</button>
+                <div class="mt-6 border-t border-stone-100 pt-5 text-center">
+                  <p class="text-xs font-bold text-stone-500">Need access?</p>
+                  <p class="mt-1 text-xs text-stone-400">Contact your administrator.</p>
+                </div>`
+          }
+        </div>
       </section>
     </main>
   `;
 }
 
-function cloudControlPanel() {
+function dataModeSettings() {
   if (!isCloudMode()) {
     return `
-      <section class="rounded-3xl border border-stone-200 bg-white p-5 shadow-soft">
-        <p class="text-xs font-bold uppercase tracking-[0.14em] text-orange">Data mode</p>
-        <h2 class="mt-1 text-lg font-extrabold text-forest">LocalStorage is active</h2>
-        <p class="mt-2 text-xs leading-5 text-stone-500">This device keeps working exactly as before. Activate Supabase when you are ready to use shared data.</p>
-        <button data-use-cloud class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Sign in to Supabase</button>
+      <section id="data-mode" class="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+        <p class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">Emergency fallback active</p>
+        <h2 class="mt-1 text-lg font-extrabold text-forest">This device's saved data</h2>
+        <p class="mt-2 text-xs leading-5 text-amber-800">Changes are currently limited to this device. Return to the shared workspace for normal multi-user operation.</p>
+        <button data-use-cloud class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Return to Shared Workspace</button>
       </section>
     `;
   }
   return `
-    <section class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+    <section id="data-mode" class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <p class="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Supabase connected</p>
-          <h2 class="mt-1 text-lg font-extrabold text-forest">Shared business data</h2>
-          <p class="mt-1 text-xs text-emerald-800">${escapeHtml(state.cloudSession?.user?.email || "")}</p>
+          <p class="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Recommended</p>
+          <h2 class="mt-1 text-lg font-extrabold text-forest">Shared Workspace</h2>
+          <p class="mt-1 text-xs leading-5 text-emerald-800">Orders and production updates are shared across approved devices.</p>
         </div>
         <span class="rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-extrabold text-white">LIVE</span>
       </div>
-      <div class="mt-4 grid grid-cols-2 gap-2">
-        <button data-import-local class="min-h-11 rounded-xl bg-forest px-3 text-xs font-extrabold text-white">Backup & Import Local Data</button>
-        <button data-use-local class="min-h-11 rounded-xl border border-emerald-300 bg-white px-3 text-xs font-extrabold text-emerald-800">Use LocalStorage</button>
-      </div>
-      <button data-sign-out class="mt-2 min-h-10 w-full text-xs font-bold text-stone-500">Sign out</button>
+      <button data-use-local class="mt-4 min-h-11 w-full rounded-xl border border-emerald-300 bg-white px-3 text-xs font-extrabold text-emerald-800">Use Emergency Device Fallback</button>
     </section>
+  `;
+}
+
+function profileMenu() {
+  if (!state.profileMenuOpen) return "";
+  const admin = canUse("manageSettings");
+  return `
+    <div class="fixed inset-0 z-40" data-close-profile-menu aria-hidden="true"></div>
+    <section class="profile-menu-position fixed top-20 z-50 w-[min(21rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-soft" aria-label="Profile menu">
+      <div class="border-b border-stone-100 p-4">
+        <p class="font-extrabold text-forest">${escapeHtml(currentUserName())}</p>
+        <p class="mt-0.5 truncate text-xs text-stone-500">${escapeHtml(state.cloudSession?.user?.email || "")}</p>
+      </div>
+      <div class="p-2">
+        <button data-nav="settings" class="flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-bold text-forest">${icon("settings", "h-5 w-5 text-orange")} Settings</button>
+        ${admin ? `
+          <button data-nav="staff" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Staff Management</button>
+          <button data-nav="settings" data-settings-target="backup" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Backup & Restore</button>
+          <button data-nav="settings" data-settings-target="data-mode" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Data Mode</button>
+          <button data-nav="settings" data-settings-target="business-settings" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Business Settings</button>
+          <button data-nav="pricing" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Pricing Management</button>
+        ` : ""}
+        <button data-sign-out class="mt-1 min-h-12 w-full rounded-2xl border-t border-stone-100 px-3 text-left text-sm font-extrabold text-red-600">Sign Out</button>
+      </div>
+    </section>
+  `;
+}
+
+function profileButton() {
+  return `
+    <button data-profile-menu class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-forest font-extrabold text-white shadow-soft" aria-label="Open profile menu" aria-expanded="${state.profileMenuOpen}">
+      ${escapeHtml(currentUserName().charAt(0).toUpperCase())}
+    </button>
   `;
 }
 
@@ -612,11 +652,8 @@ function renderDashboard() {
   const overview = orderOverview(todayOrders);
 
   return `
-    ${header(`Good morning, ${escapeHtml(currentUserName())}`, "Tastory OMS", `
-      <div class="grid h-11 w-11 place-items-center rounded-full bg-forest font-extrabold text-white shadow-soft">${escapeHtml(currentUserName().charAt(0).toUpperCase())}</div>
-    `)}
+    ${header(`Good morning, ${escapeHtml(currentUserName())}`, "Tastory OMS", profileButton())}
     <main class="page-enter space-y-6 px-5 md:px-8">
-      ${cloudControlPanel()}
       <section class="overflow-hidden rounded-3xl bg-forest p-5 text-white shadow-soft">
         <div class="flex items-start justify-between">
           <div>
@@ -654,17 +691,6 @@ function renderDashboard() {
         </button>
       </section>
 
-      <section class="grid grid-cols-2 gap-3">
-        <button data-export-excel class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
-          <span class="block text-sm font-extrabold">Export to Excel</span>
-          <span class="mt-1 block text-xs text-stone-500">Choose where to save today's file</span>
-        </button>
-        <button data-auto-export class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
-          <span class="block text-sm font-extrabold">Auto Export</span>
-          <span class="mt-1 block text-xs text-stone-500">${appSettings.exportFolderName ? "Save to " + escapeHtml(appSettings.exportFolderName) : "Set default folder first"}</span>
-        </button>
-      </section>
-
       <section class="rounded-3xl bg-white p-5 shadow-soft">
         <div class="mb-4 flex items-end justify-between gap-3">
           <div>
@@ -682,25 +708,6 @@ function renderDashboard() {
         </div>
       </section>
 
-      <section class="grid grid-cols-2 gap-3">
-        <button data-set-export-folder class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
-          <span class="block text-sm font-extrabold">Set Export Folder</span>
-          <span class="mt-1 block text-xs text-stone-500">${appSettings.exportFolderName ? escapeHtml(appSettings.exportFolderName) : "Choose default folder"}</span>
-        </button>
-        ${canUse("managePricing") ? `<button data-nav="pricing" class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
-          <span class="block text-sm font-extrabold">Manage Pricing</span>
-          <span class="mt-1 block text-xs text-stone-500">Edit products and pack sizes</span>
-        </button>` : `<div class="rounded-2xl border border-stone-200 bg-white p-4 text-left text-stone-400 shadow-soft">
-          <span class="block text-sm font-extrabold">Shared pricing</span>
-          <span class="mt-1 block text-xs">Managed by an administrator</span>
-        </div>`}
-      </section>
-      ${isCloudMode() && canUse("manageStaff") ? `<section>
-        <button data-nav="staff" class="w-full rounded-2xl border border-stone-200 bg-white p-4 text-left text-forest shadow-soft">
-          <span class="block text-sm font-extrabold">Staff Management</span>
-          <span class="mt-1 block text-xs text-stone-500">Invite staff, manage roles, and review pending invitations</span>
-        </button>
-      </section>` : ""}
       <section>
         <div class="mb-3 flex items-end justify-between">
           <div>
@@ -734,6 +741,7 @@ function renderDashboard() {
           : ""
       }
     </main>
+    ${profileMenu()}
   `;
 }
 
@@ -1121,9 +1129,90 @@ function renderSummary() {
   `;
 }
 
+function settingsLink(title, description, page, extra = "") {
+  return `
+    <button data-nav="${page}" ${extra} class="flex min-h-16 w-full items-center justify-between gap-4 rounded-2xl border border-stone-200 bg-white p-4 text-left shadow-soft">
+      <span>
+        <span class="block text-sm font-extrabold text-forest">${title}</span>
+        <span class="mt-1 block text-xs leading-5 text-stone-500">${description}</span>
+      </span>
+      ${icon("chevron", "h-5 w-5 shrink-0 text-stone-300")}
+    </button>
+  `;
+}
+
+function renderSettings() {
+  const admin = canUse("manageSettings");
+  const roles = cloudRoles()
+    .map((code) => STAFF_ROLES.find((role) => role.code === code)?.name || code)
+    .join(", ");
+  return `
+    ${header("Settings", "Account & administration", profileButton())}
+    <main class="page-enter space-y-6 px-5 md:px-8">
+      <section class="rounded-3xl bg-white p-5 shadow-soft">
+        <div class="flex items-center gap-4">
+          <div class="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-forest text-xl font-extrabold text-white">${escapeHtml(currentUserName().charAt(0).toUpperCase())}</div>
+          <div class="min-w-0">
+            <h2 class="truncate text-lg font-extrabold text-forest">${escapeHtml(currentUserName())}</h2>
+            <p class="truncate text-xs text-stone-500">${escapeHtml(state.cloudSession?.user?.email || "")}</p>
+            <p class="mt-1 text-xs font-bold text-orange">${escapeHtml(roles || "Tastory Staff")}</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="daily-exports">
+        <div class="mb-3">
+          <h2 class="text-lg font-extrabold text-forest">Daily Exports</h2>
+          <p class="text-xs text-stone-500">Download today's order records.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <button data-export-excel class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
+            <span class="block text-sm font-extrabold">Export to Excel</span>
+            <span class="mt-1 block text-xs leading-5 text-stone-500">Choose where to save</span>
+          </button>
+          <button data-auto-export class="rounded-2xl bg-white p-4 text-left text-forest shadow-soft">
+            <span class="block text-sm font-extrabold">Auto Export</span>
+            <span class="mt-1 block text-xs leading-5 text-stone-500">${appSettings.exportFolderName ? escapeHtml(appSettings.exportFolderName) : "Default folder not set"}</span>
+          </button>
+        </div>
+        <button data-set-export-folder class="mt-3 min-h-11 w-full rounded-xl border border-stone-200 bg-white px-4 text-xs font-extrabold text-stone-600">Set Export Folder</button>
+      </section>
+
+      ${admin ? `
+        <section>
+          <div class="mb-3">
+            <h2 class="text-lg font-extrabold text-forest">Administration</h2>
+            <p class="text-xs text-stone-500">Visible only to Tastory Admins.</p>
+          </div>
+          <div class="space-y-3">
+            ${settingsLink("Staff Management", "Invite staff, change roles, and manage access.", "staff")}
+            ${settingsLink("Pricing Management", "Manage products, pack sizes, and current prices.", "pricing")}
+          </div>
+        </section>
+
+        <section id="backup" class="rounded-3xl border border-stone-200 bg-white p-5 shadow-soft">
+          <h2 class="text-base font-extrabold text-forest">Backup & Restore</h2>
+          <p class="mt-2 text-xs leading-5 text-stone-500">Production backup and restore tools are planned for the next readiness phase. Existing migration backups remain protected.</p>
+          ${isCloudMode() ? `<button data-import-local class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-xs font-extrabold text-white">Import Protected Device Backup</button>` : ""}
+        </section>
+
+        ${dataModeSettings()}
+
+        <section id="business-settings" class="rounded-3xl border border-stone-200 bg-white p-5 shadow-soft">
+          <h2 class="text-base font-extrabold text-forest">Business Settings</h2>
+          <p class="mt-2 text-xs leading-5 text-stone-500">Company details, WhatsApp number, delivery charges, tax settings, and receipt footer will be managed here when the configuration module is enabled.</p>
+        </section>
+      ` : ""}
+
+      <button data-sign-out class="min-h-12 w-full rounded-xl border border-red-200 bg-white px-4 text-sm font-extrabold text-red-600">Sign Out</button>
+    </main>
+    ${profileMenu()}
+  `;
+}
+
 function renderPricing() {
   return `
-    ${header("Pricing", "Product settings", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    ${header("Pricing", "Product settings", `<button data-nav="settings" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
     <main class="page-enter px-5 md:px-8">
       <form id="pricing-form" class="space-y-4">
         <section class="rounded-3xl bg-white p-5 shadow-soft">
@@ -1226,7 +1315,7 @@ function renderStaff() {
   const staff = filtered.filter((member) => member.status !== "pending");
 
   return `
-    ${header("Staff Management", "Admin only", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    ${header("Staff Management", "Admin only", `<button data-nav="settings" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
     <main class="page-enter space-y-5 px-5 md:px-8">
       <section class="rounded-3xl bg-white p-5 shadow-soft">
         <div class="mb-4">
@@ -1589,16 +1678,14 @@ function renderOrderModal(order) {
 
 function render() {
   const app = document.querySelector("#app");
-  if (isCloudMode() && (!state.cloudSession || state.authNeedsPassword)) {
+  if (!UX_ACCESS.isAuthenticated(state.cloudSession) || state.authNeedsPassword) {
+    app.className = "mx-auto min-h-screen max-w-3xl";
     app.innerHTML = renderLogin();
     bindEvents();
     return;
   }
-  if (isCloudMode() && state.cloudSession) {
-    if (state.page === "new-order" && !canUse("createOrder")) state.page = "orders";
-    if (state.page === "pricing" && !canUse("managePricing")) state.page = "dashboard";
-    if (state.page === "staff" && !canUse("manageStaff")) state.page = "dashboard";
-  } else if (state.page === "staff") {
+  app.className = "mx-auto min-h-screen max-w-3xl pb-28";
+  if (!UX_ACCESS.canAccessPage(state.page, state.cloudSession, cloudRoles())) {
     state.page = "dashboard";
   }
   const pages = {
@@ -1609,6 +1696,7 @@ function render() {
     summary: renderSummary,
     pricing: renderPricing,
     staff: renderStaff,
+    settings: renderSettings,
   };
   app.innerHTML = `${pages[state.page]()}${bottomNav()}`;
   bindEvents();
@@ -1617,7 +1705,11 @@ function render() {
 }
 
 async function navigate(page) {
+  if (!UX_ACCESS.canAccessPage(page, state.cloudSession, cloudRoles())) {
+    page = "dashboard";
+  }
   state.page = page;
+  state.profileMenuOpen = false;
   if (page !== "new-order") state.editingId = null;
   render();
   if (page === "staff" && canUse("manageStaff")) {
@@ -1632,27 +1724,51 @@ function bindEvents() {
   document.querySelector("[data-reset-password]")?.addEventListener("click", handlePasswordReset);
   document.querySelectorAll("[data-use-local]").forEach((button) => {
     button.addEventListener("click", async () => {
+      if (!canUse("manageSettings")) return;
       CLOUD?.unsubscribe();
       CLOUD?.setProvider("local");
-      state.cloudSession = null;
-      state.cloudRoleCodes = [];
       state.cloudError = "";
       appSettings = loadSettings();
       PRODUCTS = appSettings.products;
       state.orders = loadOrders();
       render();
-      showToast("LocalStorage mode restored.");
+      showToast("Emergency device fallback is active.");
     });
   });
   document.querySelector("[data-use-cloud]")?.addEventListener("click", () => {
+    if (!canUse("manageSettings")) return;
     CLOUD?.setProvider("supabase");
     state.cloudError = "";
-    initializeApp();
+    refreshCloudWorkspace()
+      .then(() => {
+        CLOUD.subscribe(async () => {
+          await refreshCloudWorkspace({ quiet: true });
+          render();
+        });
+        render();
+        showToast("Shared workspace restored.");
+      })
+      .catch((error) => showToast(error.message || "Could not open the shared workspace.", "error"));
   });
-  document.querySelector("[data-sign-out]")?.addEventListener("click", async () => {
-    await CLOUD.signOut();
-    state.cloudSession = null;
-    state.cloudRoleCodes = [];
+  document.querySelectorAll("[data-sign-out]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      CLOUD.unsubscribe();
+      await CLOUD.signOut();
+      localStorage.removeItem(AUTH_SEEN_KEY);
+      state.cloudSession = null;
+      state.cloudRoleCodes = [];
+      state.orders = [];
+      state.profileMenuOpen = false;
+      state.cloudError = "";
+      render();
+    });
+  });
+  document.querySelector("[data-profile-menu]")?.addEventListener("click", () => {
+    state.profileMenuOpen = !state.profileMenuOpen;
+    render();
+  });
+  document.querySelector("[data-close-profile-menu]")?.addEventListener("click", () => {
+    state.profileMenuOpen = false;
     render();
   });
   document.querySelector("[data-import-local]")?.addEventListener("click", importLocalDataToCloud);
@@ -1684,7 +1800,11 @@ function bindEvents() {
   });
 
   document.querySelectorAll("[data-nav]").forEach((button) => {
-    button.addEventListener("click", () => navigate(button.dataset.nav));
+    button.addEventListener("click", async () => {
+      const target = button.dataset.settingsTarget;
+      await navigate(button.dataset.nav);
+      if (target) document.querySelector(`#${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   });
 
 
@@ -2008,7 +2128,7 @@ async function refreshCloudWorkspace({ quiet = false } = {}) {
     state.cloudConnectedAt = new Date().toISOString();
     state.cloudError = "";
   } catch (error) {
-    state.cloudError = error.message || "Could not load Supabase data.";
+    state.cloudError = error.message || "Could not load the shared workspace.";
     if (!quiet) throw error;
   } finally {
     state.cloudLoading = false;
@@ -2132,6 +2252,7 @@ async function handleLogin(event) {
   const data = new FormData(event.currentTarget);
   state.cloudLoading = true;
   state.cloudError = "";
+  state.authNotice = "";
   render();
   try {
     state.cloudSession = await CLOUD.signIn(
@@ -2139,11 +2260,21 @@ async function handleLogin(event) {
       String(data.get("password") || ""),
     );
     await CLOUD.touchSession();
-    await refreshCloudWorkspace();
-    CLOUD.subscribe(async () => {
-      await refreshCloudWorkspace({ quiet: true });
-      render();
-    });
+    localStorage.setItem(AUTH_SEEN_KEY, "true");
+    if (isCloudMode()) {
+      await refreshCloudWorkspace();
+      CLOUD.subscribe(async () => {
+        await refreshCloudWorkspace({ quiet: true });
+        render();
+      });
+    } else {
+      const access = await CLOUD.loadAccessContext();
+      state.cloudRoleCodes = access.roles || [];
+      appSettings = loadSettings();
+      PRODUCTS = appSettings.products;
+      state.orders = loadOrders();
+    }
+    state.cloudLoading = false;
     state.page = "dashboard";
     render();
   } catch (error) {
@@ -2165,9 +2296,13 @@ async function handlePasswordReset() {
   }
   try {
     await CLOUD.requestPasswordReset(email);
-    showToast("Password reset email sent.");
+    state.cloudError = "";
+    state.authNotice = `Password reset instructions were sent to ${email}.`;
+    render();
   } catch (error) {
-    showToast(error.message || "Could not send reset email.", "error");
+    state.authNotice = "";
+    state.cloudError = error.message || "Could not send reset email.";
+    render();
   }
 }
 
@@ -2182,11 +2317,17 @@ async function handlePasswordUpdate(event) {
     history.replaceState({}, "", location.pathname);
     state.cloudSession = await CLOUD.session();
     await CLOUD.touchSession();
-    await refreshCloudWorkspace();
-    CLOUD.subscribe(async () => {
-      await refreshCloudWorkspace({ quiet: true });
-      render();
-    });
+    localStorage.setItem(AUTH_SEEN_KEY, "true");
+    if (isCloudMode()) {
+      await refreshCloudWorkspace();
+      CLOUD.subscribe(async () => {
+        await refreshCloudWorkspace({ quiet: true });
+        render();
+      });
+    } else {
+      const access = await CLOUD.loadAccessContext();
+      state.cloudRoleCodes = access.roles || [];
+    }
     state.page = "dashboard";
     render();
     showToast("Password updated.");
@@ -2197,7 +2338,7 @@ async function handlePasswordUpdate(event) {
 }
 
 async function importLocalDataToCloud() {
-  if (!window.confirm("Create a protected browser backup and import this device's local orders and pricing into Supabase?")) {
+  if (!window.confirm("Create a protected browser backup and import this device's saved orders and pricing into the shared workspace?")) {
     return;
   }
   try {
@@ -2211,10 +2352,6 @@ async function importLocalDataToCloud() {
 }
 
 async function initializeApp() {
-  if (!isCloudMode()) {
-    render();
-    return;
-  }
   state.cloudLoading = true;
   state.cloudError = "";
   try {
@@ -2234,22 +2371,43 @@ async function initializeApp() {
     if (state.cloudSession) {
       if (!state.authNeedsPassword) {
         await CLOUD.touchSession();
-        await refreshCloudWorkspace();
-        CLOUD.subscribe(async () => {
-          await refreshCloudWorkspace({ quiet: true });
-          render();
-        });
+        localStorage.setItem(AUTH_SEEN_KEY, "true");
+        if (isCloudMode()) {
+          await refreshCloudWorkspace();
+          CLOUD.subscribe(async () => {
+            await refreshCloudWorkspace({ quiet: true });
+            render();
+          });
+        } else {
+          const access = await CLOUD.loadAccessContext();
+          state.cloudRoleCodes = access.roles || [];
+          appSettings = loadSettings();
+          PRODUCTS = appSettings.products;
+          state.orders = loadOrders();
+        }
       }
+    } else if (localStorage.getItem(AUTH_SEEN_KEY)) {
+      localStorage.removeItem(AUTH_SEEN_KEY);
+      state.orders = [];
+      state.cloudError = "Your session expired. Please sign in again.";
     }
   } catch (error) {
-    if (isRevokedAccessError(error)) {
+    const revoked = isRevokedAccessError(error);
+    const expired = UX_ACCESS.isExpiredSessionError(error);
+    if (revoked || expired) {
       CLOUD.unsubscribe();
       await CLOUD.signOut();
-      state.cloudSession = null;
-      state.cloudRoleCodes = [];
-      state.orders = [];
+      localStorage.removeItem(AUTH_SEEN_KEY);
     }
-    state.cloudError = error.message || "Could not initialize Supabase.";
+    state.cloudSession = null;
+    state.cloudRoleCodes = [];
+    state.orders = [];
+    state.cloudError = revoked
+      ? STAFF_ACCESS.revokedMessage
+      : expired
+        ? "Your session expired. Please sign in again."
+        : "Could not verify your session. Check your connection and try again.";
+    state.authNotice = "";
   } finally {
     state.cloudLoading = false;
     render();
@@ -2257,17 +2415,22 @@ async function initializeApp() {
 }
 
 async function verifyCurrentStaffAccess() {
-  if (!isCloudMode() || !state.cloudSession || state.authNeedsPassword) return;
+  if (!state.cloudSession || state.authNeedsPassword) return;
   try {
     await CLOUD.touchSession();
   } catch (error) {
-    if (!isRevokedAccessError(error)) return;
+    const revoked = isRevokedAccessError(error);
+    const expired = UX_ACCESS.isExpiredSessionError(error);
+    if (!revoked && !expired) return;
     CLOUD.unsubscribe();
     await CLOUD.signOut();
+    localStorage.removeItem(AUTH_SEEN_KEY);
     state.cloudSession = null;
     state.cloudRoleCodes = [];
     state.orders = [];
-    state.cloudError = STAFF_ACCESS.revokedMessage;
+    state.cloudError = revoked
+      ? STAFF_ACCESS.revokedMessage
+      : "Your session expired. Please sign in again.";
     render();
   }
 }

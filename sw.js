@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v3.0.3-staff-removal";
+const CACHE_NAME = "tastory-oms-v3.1.0-authenticated-navigation";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "./config.js",
   "./auth-callback.js",
   "./staff-access.js",
+  "./ux-access.js",
   "./supabase-client.js",
   "./app.js",
   "./manifest.webmanifest",

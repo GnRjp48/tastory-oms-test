@@ -11,6 +11,8 @@ documented in
 [`docs/phase-3-staff-management.md`](docs/phase-3-staff-management.md).
 The invitation and password-recovery callback correction is documented in
 [`docs/phase-3-auth-callback-fix.md`](docs/phase-3-auth-callback-fix.md).
+The authenticated navigation and Settings redesign is documented in
+[`docs/phase-3-ux-navigation.md`](docs/phase-3-ux-navigation.md).
 
 ## Features
 
@@ -31,15 +33,19 @@ The invitation and password-recovery callback correction is documented in
 - Order details, editing, deletion, and quick production status updates
 - Production summary by product, pack size, and workflow stage
 - Supabase email/password authentication and password reset
+- Dedicated login screen with authenticated route protection
+- Profile menu and role-aware Settings area
 - Admin-only staff invitations, roles, activation, removal, and invitation tracking
 - Realtime order updates across signed-in devices in Supabase mode
 - Local browser storage with sample data on first launch
 - Responsive bottom navigation designed for Android phones
 
-## Data Modes
+## Authentication And Data Modes
 
-- Local mode remains the default and stores data in the current browser.
-- Supabase mode supports authenticated, shared, realtime business data.
+- Every operational screen requires a valid Supabase staff session.
+- The shared workspace supports authenticated, realtime business data.
+- Admins can activate the emergency device fallback from Settings without
+  bypassing authentication or role permissions.
 - Google Sheets and Hermes are not connected.
 
 ## Install on Android
@@ -74,7 +80,8 @@ No build step or backend is required.
 
 ### Option 1: Open the file
 
-Open `index.html` in a browser. An internet connection is needed for the Tailwind CSS CDN.
+Open `index.html` in a browser. An internet connection is needed for the
+Tailwind CSS CDN and Supabase Authentication.
 
 ### Option 2: Use a local server
 
