@@ -72,6 +72,9 @@ oms.tastory4u.com
 The `oms` DNS record must point to `gnrjp48.github.io`. The apex domain and
 `www` are reserved for the separate public Tastory website.
 
+See [Phase 6 Domain Finalization](docs/PHASE6_FINALIZATION.md) for the verified
+ownership map, final DNS layout, and public website preparation steps.
+
 ## Export Notes
 
 `Export to Excel` creates `DailyOrders_YYYY-MM-DD.xlsx` for orders created today.

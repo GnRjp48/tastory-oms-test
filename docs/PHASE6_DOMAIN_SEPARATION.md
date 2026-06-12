@@ -19,16 +19,15 @@ one custom-domain relationship.
 5. Change this repository's `CNAME` file to `oms.tastory4u.com` and deploy it.
 6. Confirm GitHub Pages recognizes the custom domain and provisions HTTPS.
 7. Set the hosted Supabase Site URL to `https://oms.tastory4u.com`.
-8. Keep old root and `www` Auth redirect URLs temporarily, while adding the OMS
-   root and reset URLs.
+8. Add the OMS root and reset Auth redirect URLs.
 9. Set the `invite-user` function secret:
    `AUTH_REDIRECT_URL=https://oms.tastory4u.com`.
 10. Deploy the `invite-user` Edge Function.
 11. Test login, invitation acceptance, and password recovery at the OMS domain.
 12. Reinstall the Android PWA from `https://oms.tastory4u.com`.
 13. Deploy the public website separately, then redirect the apex to `www`.
-14. After old invitation and recovery links have expired, remove root and
-    `www` from the Supabase Auth redirect allow-list.
+14. Remove root and `www` from the Supabase Auth redirect allow-list after old
+    invitation and recovery links have expired.
 
 ## Namecheap DNS
 
@@ -53,12 +52,8 @@ Set:
 - Development: `http://127.0.0.1:8000`
 - Development: `http://127.0.0.1:8000/?auth=reset`
 
-During the migration grace period, retain:
-
-- `https://tastory4u.com`
-- `https://tastory4u.com/?auth=reset`
-- `https://www.tastory4u.com`
-- `https://www.tastory4u.com/?auth=reset`
+The migration grace period is complete. The apex and `www` URLs must not
+remain in the hosted Supabase Auth redirect allow list.
 
 ## Browser and PWA Impact
 
