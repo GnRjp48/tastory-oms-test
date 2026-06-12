@@ -54,6 +54,7 @@ const requiredFunctions = [
   "change_staff_role",
   "set_staff_active",
   "remove_staff_member",
+  "complete_staff_invitation",
   "log_oms_client_event",
   "create_oms_backup_snapshot",
   "preview_oms_restore",

@@ -78,6 +78,7 @@
     const { data, error } = await getClient().auth.signInWithPassword({ email, password });
     if (error) throw error;
     setProvider("supabase");
+    await completeInvitationAcceptance();
     return data.session;
   }
 
@@ -94,6 +95,12 @@
   async function updatePassword(password) {
     const { error } = await getClient().auth.updateUser({ password });
     if (error) throw error;
+  }
+
+  async function completeInvitationAcceptance() {
+    const { data, error } = await getClient().rpc("complete_staff_invitation");
+    if (error) throw error;
+    return data === true;
   }
 
   async function activeBusinessId() {
@@ -533,6 +540,7 @@
     signOut,
     requestPasswordReset,
     updatePassword,
+    completeInvitationAcceptance,
     loadAccessContext,
     touchSession,
     loadStaff,

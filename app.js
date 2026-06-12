@@ -1551,7 +1551,7 @@ function staffCard(member) {
       ${pending ? `
         <div class="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
           <p class="font-extrabold">Acceptance status: Waiting for staff member</p>
-          <p class="mt-1">The account is assigned to Tastory but remains pending until the invitation is accepted.</p>
+          <p class="mt-1">Opening the email link does not activate the account. It remains pending until the staff member creates a password.</p>
         </div>
         <div class="mt-3 grid grid-cols-2 gap-2">
           <button data-resend-invitation="${member.invitation_id}" class="min-h-11 rounded-xl bg-forest px-3 text-xs font-extrabold text-white">Resend</button>
@@ -2833,8 +2833,12 @@ async function handlePasswordReset() {
 async function handlePasswordUpdate(event) {
   event.preventDefault();
   const password = new FormData(event.currentTarget).get("password");
+  const passwordMode = state.authMode;
   try {
     await CLOUD.updatePassword(password);
+    if (passwordMode === "invite") {
+      await CLOUD.completeInvitationAcceptance();
+    }
     CLOUD.completePasswordSetup();
     state.authNeedsPassword = false;
     state.authMode = "";

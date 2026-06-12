@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v6.0.0-domain-separation";
+const CACHE_NAME = "tastory-oms-v6.0.1-invitation-lifecycle";
 const APP_SHELL = [
   "./",
   "./index.html",

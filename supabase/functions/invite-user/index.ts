@@ -205,17 +205,6 @@ async function resendInvitation(
     invitationId,
     businessId,
   );
-  const authUser = invitation.user_id
-    ? await adminClient.auth.admin.getUserById(invitation.user_id)
-    : null;
-
-  if (
-    authUser?.data.user?.email_confirmed_at ||
-    authUser?.data.user?.last_sign_in_at
-  ) {
-    return json({ error: "Accepted invitations cannot be resent." }, 409);
-  }
-
   if (invitation.user_id) {
     await adminClient.auth.admin.deleteUser(invitation.user_id);
   }
@@ -276,17 +265,6 @@ async function cancelInvitation(
     invitationId,
     businessId,
   );
-  const authUser = invitation.user_id
-    ? await adminClient.auth.admin.getUserById(invitation.user_id)
-    : null;
-
-  if (
-    authUser?.data.user?.email_confirmed_at ||
-    authUser?.data.user?.last_sign_in_at
-  ) {
-    return json({ error: "Accepted invitations cannot be cancelled." }, 409);
-  }
-
   const { error: updateError } = await adminClient
     .from("staff_invitations")
     .update({
