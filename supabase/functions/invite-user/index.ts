@@ -25,8 +25,11 @@ Deno.serve(async (request) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const authorization = request.headers.get("Authorization");
 
-    if (!supabaseUrl || !publishableKey || !serviceRoleKey || !authorization) {
+    if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
       throw new Error("Function environment or authorization is incomplete.");
+    }
+    if (!authorization) {
+      return json({ error: "Authentication required." }, 401);
     }
 
     const callerClient = createClient(supabaseUrl, publishableKey, {
