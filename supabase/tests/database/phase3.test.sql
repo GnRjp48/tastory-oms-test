@@ -3,11 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(15);
+select plan(16);
 
 select has_table('public', 'staff_invitations', 'staff invitation ledger exists');
 select has_column('public', 'staff_invitations', 'status', 'invitation status exists');
 select has_column('public', 'staff_invitations', 'last_sent_at', 'resend timestamp exists');
+select has_column('public', 'staff_invitations', 'reused_auth_identity', 'historical Auth identity marker exists');
 select has_function('public', 'list_staff_management', array[]::text[], 'staff list RPC exists');
 select has_function('public', 'change_staff_role', array['uuid', 'text'], 'role change RPC exists');
 select has_function('public', 'set_staff_active', array['uuid', 'boolean'], 'staff status RPC exists');

@@ -6,6 +6,10 @@ const migration = fs.readFileSync(
   "supabase/migrations/202606120004_invitation_acceptance_lifecycle.sql",
   "utf8",
 );
+const reinvitationMigration = fs.readFileSync(
+  "supabase/migrations/202606120005_staff_reinvitation.sql",
+  "utf8",
+);
 const edgeFunction = fs.readFileSync("supabase/functions/invite-user/index.ts", "utf8");
 const client = fs.readFileSync("supabase-client.js", "utf8");
 
@@ -16,10 +20,25 @@ test("opening an invitation email does not mark the ledger accepted", () => {
 
 test("acceptance is completed explicitly after password setup", () => {
   assert.match(migration, /function public\.complete_staff_invitation\(\)/i);
+  assert.match(reinvitationMigration, /is_active = true/i);
   assert.match(client, /completeInvitationAcceptance/);
 });
 
 test("pending invitations can be cancelled or resent after their link is opened", () => {
   assert.doesNotMatch(edgeFunction, /Accepted invitations cannot be cancelled/);
   assert.doesNotMatch(edgeFunction, /Accepted invitations cannot be resent/);
+});
+
+test("removed Auth identities can be safely re-invited", () => {
+  assert.match(edgeFunction, /reinviteExistingStaff/);
+  assert.match(edgeFunction, /resetPasswordForEmail/);
+  assert.match(edgeFunction, /reused_account: true/);
+  assert.match(edgeFunction, /reused_auth_identity: true/);
+  assert.match(edgeFunction, /is_active: false/);
+});
+
+test("cancelling a re-invitation retains the historical Auth identity", () => {
+  assert.match(reinvitationMigration, /reused_auth_identity boolean/i);
+  assert.match(edgeFunction, /!invitation\.reused_auth_identity/);
+  assert.match(edgeFunction, /active_business_id: null/);
 });

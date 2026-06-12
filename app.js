@@ -2679,7 +2679,7 @@ async function handleStaffInvite(event) {
   submitButton.disabled = true;
   submitButton.textContent = "Sending...";
   try {
-    await CLOUD.inviteStaff({
+    const result = await CLOUD.inviteStaff({
       full_name: String(data.get("fullName") || "").trim(),
       email: String(data.get("email") || "").trim(),
       role_code: String(data.get("role") || ""),
@@ -2688,7 +2688,11 @@ async function handleStaffInvite(event) {
     form.elements.role.value = "sales_staff";
     await refreshStaff();
     render();
-    showToast("Staff invitation sent.");
+    showToast(
+      result.reused_account
+        ? "Previous staff account re-invited with a secure password setup link."
+        : "Staff invitation sent.",
+    );
   } catch (error) {
     showToast(error.message || "Could not send invitation.", "error");
     submitButton.disabled = false;
@@ -2836,7 +2840,7 @@ async function handlePasswordUpdate(event) {
   const passwordMode = state.authMode;
   try {
     await CLOUD.updatePassword(password);
-    if (passwordMode === "invite") {
+    if (["invite", "recovery"].includes(passwordMode)) {
       await CLOUD.completeInvitationAcceptance();
     }
     CLOUD.completePasswordSetup();

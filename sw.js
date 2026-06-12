@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v6.0.1-invitation-lifecycle";
+const CACHE_NAME = "tastory-oms-v6.0.2-staff-reinvitation";
 const APP_SHELL = [
   "./",
   "./index.html",

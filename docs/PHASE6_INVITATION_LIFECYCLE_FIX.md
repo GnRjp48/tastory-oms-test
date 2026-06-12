@@ -23,12 +23,37 @@ already email-confirmed.
 7. A later successful password login also completes a still-pending ledger,
    covering interrupted callback completion.
 
-Cancel deletes the provisional Auth user and cascades its provisional Tastory
-profile and role while retaining the cancelled invitation audit record.
+For a brand-new account, Cancel deletes the provisional Auth user and
+cascades its provisional Tastory profile and role while retaining the
+cancelled invitation audit record.
+
+## Re-inviting Removed Staff
+
+Removing staff from Tastory intentionally retains the Supabase Auth identity
+and profile for historical activity and audit references. Previously, that
+retained identity caused a later invitation to the same email address to fail
+as a duplicate.
+
+The invitation function now detects an inactive historical account with no
+Tastory role and safely reuses it:
+
+1. A fresh pending invitation and selected role are created.
+2. A secure password setup link is sent through the password recovery flow.
+3. The account remains inactive until password setup succeeds.
+4. Password setup completes the invitation and restores Tastory access.
+5. Cancelling the re-invitation removes the provisional role and business
+   assignment while preserving the historical Auth identity and activity
+   references.
+
+Active staff and accounts that still have a Tastory role remain protected
+from duplicate invitations.
 
 ## Regression Coverage
 
 - Email confirmation no longer changes the invitation ledger.
 - Password setup explicitly completes acceptance.
 - Pending Cancel and Resend remain available after link-click.
+- Removed staff can be invited again using the same email address.
+- Re-invitation reuses historical identity without restoring access early.
+- Cancelling a re-invitation preserves historical Auth and audit references.
 - Existing invitation callback session precedence remains unchanged.

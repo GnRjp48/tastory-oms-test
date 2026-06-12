@@ -70,7 +70,13 @@ Deno.serve(async (request) => {
     }
 
     if (action === "invite") {
-      return await inviteStaff(adminClient, caller.id, businessId, body);
+      return await inviteStaff(
+        adminClient,
+        callerClient,
+        caller.id,
+        businessId,
+        body,
+      );
     }
     if (action === "resend") {
       return await resendInvitation(adminClient, caller.id, businessId, body);
@@ -101,6 +107,7 @@ Deno.serve(async (request) => {
 
 async function inviteStaff(
   adminClient: ReturnType<typeof createClient>,
+  mailClient: ReturnType<typeof createClient>,
   callerId: string,
   businessId: string,
   body: Record<string, unknown>,
@@ -143,6 +150,35 @@ async function inviteStaff(
   }
 
   const role = await findRole(adminClient, roleCode);
+  const { data: existingProfile } = await adminClient
+    .from("users")
+    .select("id,is_active,active_business_id,user_roles(business_id)")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (existingProfile) {
+    if (
+      existingProfile.is_active ||
+      (existingProfile.user_roles || []).length > 0
+    ) {
+      return json(
+        { error: "This email belongs to an active staff account." },
+        409,
+      );
+    }
+    return await reinviteExistingStaff(
+      adminClient,
+      mailClient,
+      callerId,
+      businessId,
+      existingProfile.id,
+      email,
+      fullName,
+      role.id,
+      role.code,
+    );
+  }
+
   const invite = await sendInvitation(adminClient, email, fullName);
   const assignmentError = await assignInvitedUser(
     adminClient,
@@ -191,6 +227,76 @@ async function inviteStaff(
   });
 }
 
+async function reinviteExistingStaff(
+  adminClient: ReturnType<typeof createClient>,
+  mailClient: ReturnType<typeof createClient>,
+  callerId: string,
+  businessId: string,
+  userId: string,
+  email: string,
+  fullName: string,
+  roleId: string,
+  roleCode: string,
+) {
+  const redirectTo =
+    `${Deno.env.get("AUTH_REDIRECT_URL") ?? "https://oms.tastory4u.com"}?auth=reset`;
+  const { error: mailError } = await mailClient.auth.resetPasswordForEmail(
+    email,
+    { redirectTo },
+  );
+  if (mailError) {
+    throw new Error(mailError.message || "Unable to send re-invitation email.");
+  }
+
+  const assignmentError = await assignInvitedUser(
+    adminClient,
+    userId,
+    email,
+    fullName,
+    businessId,
+    roleId,
+    callerId,
+  );
+  if (assignmentError) return json({ error: assignmentError }, 500);
+
+  const { data: invitation, error: ledgerError } = await adminClient
+    .from("staff_invitations")
+    .insert({
+      business_id: businessId,
+      user_id: userId,
+      email,
+      full_name: fullName,
+      role_id: roleId,
+      status: "pending",
+      invited_by: callerId,
+      reused_auth_identity: true,
+    })
+    .select("id,invited_at")
+    .single();
+
+  if (ledgerError) {
+    await adminClient
+      .from("user_roles")
+      .delete()
+      .eq("business_id", businessId)
+      .eq("user_id", userId);
+    return json(
+      { error: "Re-invitation email was sent, but invitation tracking failed." },
+      500,
+    );
+  }
+
+  return json({
+    invitation_id: invitation.id,
+    user_id: userId,
+    email,
+    role: roleCode,
+    invited_at: invitation.invited_at,
+    status: "pending",
+    reused_account: true,
+  });
+}
+
 async function resendInvitation(
   adminClient: ReturnType<typeof createClient>,
   callerId: string,
@@ -205,33 +311,17 @@ async function resendInvitation(
     invitationId,
     businessId,
   );
-  if (invitation.user_id) {
-    await adminClient.auth.admin.deleteUser(invitation.user_id);
-  }
-
-  const invite = await sendInvitation(
-    adminClient,
+  const redirectTo =
+    `${Deno.env.get("AUTH_REDIRECT_URL") ?? "https://oms.tastory4u.com"}?auth=reset`;
+  const { error: mailError } = await adminClient.auth.resetPasswordForEmail(
     invitation.email,
-    invitation.full_name,
+    { redirectTo },
   );
-  const assignmentError = await assignInvitedUser(
-    adminClient,
-    invite.user.id,
-    invitation.email,
-    invitation.full_name,
-    businessId,
-    invitation.role_id,
-    callerId,
-  );
-  if (assignmentError) {
-    await adminClient.auth.admin.deleteUser(invite.user.id);
-    return json({ error: assignmentError }, 500);
-  }
+  if (mailError) throw new Error(mailError.message || "Unable to resend invitation.");
 
   const { error: updateError } = await adminClient
     .from("staff_invitations")
     .update({
-      user_id: invite.user.id,
       last_sent_at: new Date().toISOString(),
       send_count: invitation.send_count + 1,
       invited_by: callerId,
@@ -244,7 +334,7 @@ async function resendInvitation(
 
   return json({
     invitation_id: invitation.id,
-    user_id: invite.user.id,
+    user_id: invitation.user_id,
     email: invitation.email,
     status: "pending",
     resent: true,
@@ -278,8 +368,22 @@ async function cancelInvitation(
     return json({ error: "Unable to cancel invitation." }, 500);
   }
 
-  if (invitation.user_id) {
+  if (invitation.user_id && !invitation.reused_auth_identity) {
     await adminClient.auth.admin.deleteUser(invitation.user_id);
+  } else if (invitation.user_id) {
+    await adminClient
+      .from("user_roles")
+      .delete()
+      .eq("business_id", businessId)
+      .eq("user_id", invitation.user_id);
+    await adminClient
+      .from("users")
+      .update({
+        active_business_id: null,
+        is_active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", invitation.user_id);
   }
 
   return json({
@@ -309,7 +413,7 @@ async function findPendingInvitation(
 ) {
   const { data, error } = await adminClient
     .from("staff_invitations")
-    .select("id,user_id,email,full_name,role_id,status,send_count")
+    .select("id,user_id,email,full_name,role_id,status,send_count,reused_auth_identity")
     .eq("id", invitationId)
     .eq("business_id", businessId)
     .eq("status", "pending")
@@ -349,7 +453,7 @@ async function assignInvitedUser(
     email,
     full_name: fullName,
     active_business_id: businessId,
-    is_active: true,
+    is_active: false,
   });
   if (profileError) return "Unable to create staff profile.";
 
