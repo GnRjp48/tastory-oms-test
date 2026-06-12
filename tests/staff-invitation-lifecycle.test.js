@@ -30,11 +30,23 @@ test("pending invitations can be cancelled or resent after their link is opened"
 });
 
 test("removed Auth identities can be safely re-invited", () => {
+  assert.match(edgeFunction, /findAuthUserByEmail/);
+  assert.match(edgeFunction, /auth\.admin\.listUsers/);
+  assert.match(edgeFunction, /existingAuthUser\?\.id/);
+  assert.match(edgeFunction, /\.eq\("user_id", existingUserId\)/);
   assert.match(edgeFunction, /reinviteExistingStaff/);
   assert.match(edgeFunction, /resetPasswordForEmail/);
   assert.match(edgeFunction, /reused_account: true/);
   assert.match(edgeFunction, /reused_auth_identity: true/);
   assert.match(edgeFunction, /is_active: false/);
+});
+
+test("Auth-only historical accounts do not fall through to a duplicate invite", () => {
+  const authLookup = edgeFunction.indexOf("findAuthUserByEmail(adminClient, email)");
+  const freshInvite = edgeFunction.indexOf("sendInvitation(adminClient, email, fullName)");
+  assert.ok(authLookup >= 0);
+  assert.ok(freshInvite > authLookup);
+  assert.match(edgeFunction, /existingUserId[\s\S]*reinviteExistingStaff/);
 });
 
 test("cancelling a re-invitation retains the historical Auth identity", () => {

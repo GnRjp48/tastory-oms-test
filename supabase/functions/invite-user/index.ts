@@ -150,16 +150,33 @@ async function inviteStaff(
   }
 
   const role = await findRole(adminClient, roleCode);
-  const { data: existingProfile } = await adminClient
+  const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+  const { data: existingProfiles, error: profileLookupError } = await adminClient
     .from("users")
     .select("id,is_active,active_business_id,user_roles(business_id)")
-    .eq("email", email)
-    .maybeSingle();
+    .ilike("email", email)
+    .limit(10);
 
-  if (existingProfile) {
+  if (profileLookupError) {
+    throw new Error("Unable to check existing staff profiles.");
+  }
+
+  const existingProfile = existingAuthUser
+    ? existingProfiles?.find((profile) => profile.id === existingAuthUser.id)
+    : existingProfiles?.[0];
+  const existingUserId = existingAuthUser?.id ?? existingProfile?.id;
+
+  if (existingUserId) {
+    const { data: existingRoles, error: roleLookupError } = await adminClient
+      .from("user_roles")
+      .select("business_id")
+      .eq("user_id", existingUserId);
+
+    if (roleLookupError) {
+      throw new Error("Unable to check existing staff access.");
+    }
     if (
-      existingProfile.is_active ||
-      (existingProfile.user_roles || []).length > 0
+      (existingRoles || []).length > 0
     ) {
       return json(
         { error: "This email belongs to an active staff account." },
@@ -171,7 +188,7 @@ async function inviteStaff(
       mailClient,
       callerId,
       businessId,
-      existingProfile.id,
+      existingUserId,
       email,
       fullName,
       role.id,
@@ -225,6 +242,30 @@ async function inviteStaff(
     invited_at: invitation.invited_at,
     status: "pending",
   });
+}
+
+async function findAuthUserByEmail(
+  adminClient: ReturnType<typeof createClient>,
+  email: string,
+) {
+  const perPage = 1000;
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await adminClient.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+    if (error) {
+      throw new Error("Unable to check existing authentication accounts.");
+    }
+
+    const match = data.users.find(
+      (user) => String(user.email || "").trim().toLowerCase() === email,
+    );
+    if (match) return match;
+    if (data.users.length < perPage) return null;
+  }
+
+  throw new Error("Unable to complete the authentication account lookup.");
 }
 
 async function reinviteExistingStaff(

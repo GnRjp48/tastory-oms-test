@@ -48,12 +48,19 @@ Tastory role and safely reuses it:
 Active staff and accounts that still have a Tastory role remain protected
 from duplicate invitations.
 
+The account lookup uses Supabase Auth as the authoritative source and then
+checks Tastory role assignments by Auth user ID. This also supports historical
+accounts whose `public.users` profile is missing, duplicated, or has a stale
+email value; those accounts no longer fall through to the new-user invitation
+API and trigger an "already registered" error.
+
 ## Regression Coverage
 
 - Email confirmation no longer changes the invitation ledger.
 - Password setup explicitly completes acceptance.
 - Pending Cancel and Resend remain available after link-click.
 - Removed staff can be invited again using the same email address.
+- Auth-only and stale-profile historical accounts are detected correctly.
 - Re-invitation reuses historical identity without restoring access early.
 - Cancelling a re-invitation preserves historical Auth and audit references.
 - Existing invitation callback session precedence remains unchanged.
