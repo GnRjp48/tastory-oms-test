@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tastory Backup UI Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              forest: "#1f3d2b",
+              sage: "#dce8da",
+              cream: "#f8f5ed",
+              oat: "#eadfca",
+              cocoa: "#755744",
+              orange: "#e57e3d",
+              ink: "#243029",
+            },
+            boxShadow: { soft: "0 12px 35px rgba(41, 54, 45, 0.09)" },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      html.mobile-harness,
+      html.mobile-harness body,
+      html.mobile-harness #app {
+        width: 390px;
+        max-width: 390px;
+      }
+    </style>
+  </head>
+  <body class="overflow-x-hidden bg-cream text-ink antialiased">
+    <div id="app" class="mx-auto min-h-screen max-w-3xl pb-28"></div>
+    <div id="toast-region" class="pointer-events-none fixed inset-x-4 top-4 z-[70]"></div>
+    <script>
+      if (new URLSearchParams(location.search).get("mobile") === "1") {
+        document.documentElement.classList.add("mobile-harness");
+      }
+      const adminSession = {
+        access_token: "mock.eyJhcHBfcm9sZXMiOlsiYWRtaW4iXX0.mock",
+        user: {
+          id: "00000000-0000-0000-0000-000000000001",
+          email: "jane@tastory4u.com",
+          user_metadata: { full_name: "Jane" },
+        },
+      };
+      window.TastoryCloud = {
+        provider: () => "supabase",
+        setProvider() {},
+        processAuthCallback: async () => ({ session: null, mode: "" }),
+        pendingPasswordSetup: () => "",
+        session: async () => adminSession,
+        touchSession: async () => {},
+        loadAccessContext: async () => ({ roles: ["admin"] }),
+        loadWorkspace: async () => ({ orders: [], products: [], access: { roles: ["admin"] } }),
+        subscribe() {},
+        unsubscribe() {},
+        signOut: async () => {},
+        logClientEvent: async () => {},
+      };
+      localStorage.setItem("tastory-oms-backup-status-v1", JSON.stringify({
+        lastSuccessAt: "2026-06-12T01:15:00.000Z",
+        lastFailureAt: null,
+        lastError: "",
+        lastBackup: {
+          fileName: "TastoryBackup_2026-06-12_0915.json",
+          size: 184320,
+          counts: { orders: 148, customers: 63 },
+        },
+      }));
+      localStorage.setItem("tastory-oms-backup-config-v1", JSON.stringify({
+        frequency: "daily",
+        time: "23:00",
+        destination: "both",
+        retention: 30,
+        folderName: "Tastory Backups",
+      }));
+    </script>
+    <script src="../staff-access.js"></script>
+    <script src="../ux-access.js"></script>
+    <script src="../emergency-mode.js"></script>
+    <script src="../backup-manager.js"></script>
+    <script src="../app.js"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ const CLOUD = window.TastoryCloud;
 const STAFF_ACCESS = window.TastoryStaffAccess;
 const UX_ACCESS = window.TastoryUxAccess;
 const EMERGENCY_MODE = window.TastoryEmergencyMode;
+const BACKUP_MANAGER = window.TastoryBackupManager;
 const AUTH_SEEN_KEY = "tastory-oms-authenticated-v1";
 
 function isCloudMode() {
@@ -131,7 +132,7 @@ const ICONS = {
   settings: '<path d="M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L15 3h-4l-.4 3a8 8 0 0 0-1.7 1L6.5 6l-2 3.4L6.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.4 3h4l.4-3a8 8 0 0 0 1.7-1l2.4 1 2-3.4L19.4 13ZM13 18.8h-2l-.3-2.3-.7-.3a6 6 0 0 1-1.4-.8L8 15l-1.9.8-1-1.7 1.7-1.3-.1-.8a5.4 5.4 0 0 1 0-1.6l.1-.8-1.7-1.3 1-1.7 1.9.8.6-.4a6 6 0 0 1 1.4-.8l.7-.3L11 5h2l.3 2.3.7.3a6 6 0 0 1 1.4.8l.6.4 1.9-.8 1 1.7-1.7 1.3.1.8a5.4 5.4 0 0 1 0 1.6l-.1.8 1.7 1.3-1 1.7-1.9-.8-.6.4a6 6 0 0 1-1.4.8l-.7.3-.3 2.3ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/>',
 };
 
-const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing", "staff", "settings"];
+const VALID_PAGES = ["dashboard", "new-order", "orders", "production", "summary", "pricing", "staff", "settings", "backup"];
 
 function initialPage() {
   const page = new URLSearchParams(window.location.search).get("page") || window.location.hash.replace("#", "");
@@ -158,6 +159,10 @@ const state = {
   staffLoading: false,
   profileMenuOpen: false,
   safetyDialog: "",
+  backupRecords: [],
+  backupBusy: false,
+  restorePreview: null,
+  missedBackupPrompt: false,
 };
 
 function icon(name, classes = "h-5 w-5") {
@@ -681,7 +686,7 @@ function profileMenu() {
         <button data-nav="settings" class="flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-sm font-bold text-forest">${icon("settings", "h-5 w-5 text-orange")} Settings</button>
         ${admin ? `
           <button data-nav="staff" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Staff Management</button>
-          <button data-nav="settings" data-settings-target="backup" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Backup & Restore</button>
+          <button data-nav="backup" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Backup & Restore</button>
           <button data-nav="settings" data-settings-target="data-mode" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Emergency Local Mode</button>
           <button data-nav="settings" data-settings-target="business-settings" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Business Settings</button>
           <button data-nav="pricing" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Pricing Management</button>
@@ -1278,13 +1283,8 @@ function renderSettings() {
           <div class="space-y-3">
             ${settingsLink("Staff Management", "Invite staff, change roles, and manage access.", "staff")}
             ${settingsLink("Pricing Management", "Manage products, pack sizes, and current prices.", "pricing")}
+            ${settingsLink("Backup & Restore", "Protect Shared Workspace data and manage recovery.", "backup")}
           </div>
-        </section>
-
-        <section id="backup" class="rounded-3xl border border-stone-200 bg-white p-5 shadow-soft">
-          <h2 class="text-base font-extrabold text-forest">Backup & Restore</h2>
-          <p class="mt-2 text-xs leading-5 text-stone-500">Production backup and restore tools are planned for the next readiness phase. Existing migration backups remain protected.</p>
-          ${isCloudMode() ? `<button data-import-local class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-xs font-extrabold text-white">Import Protected Device Backup</button>` : ""}
         </section>
 
         ${dataModeSettings()}
@@ -1298,6 +1298,183 @@ function renderSettings() {
       <button data-sign-out class="min-h-12 w-full rounded-xl border border-red-200 bg-white px-4 text-sm font-extrabold text-red-600">Sign Out</button>
     </main>
     ${profileMenu()}
+  `;
+}
+
+function backupDate(value, fallback = "Not yet") {
+  if (!value) return fallback;
+  return new Date(value).toLocaleString("en-MY", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function backupSize(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderRestorePreview() {
+  const preview = state.restorePreview;
+  if (!preview) return "";
+  const summary = BACKUP_MANAGER.counts(preview.backup);
+  const duplicates = preview.databasePreview?.duplicates || {};
+  const duplicateTotal = Object.values(duplicates).reduce((total, value) => total + Number(value || 0), 0);
+  return `
+    <div class="fixed inset-0 z-[85] grid place-items-end bg-ink/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
+      <section class="modal-enter max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-6 sm:rounded-3xl">
+        <p class="text-xs font-extrabold uppercase tracking-[0.16em] text-orange">Restore preview</p>
+        <h2 class="mt-2 text-xl font-extrabold text-forest">${escapeHtml(preview.fileName)}</h2>
+        <p class="mt-2 text-xs leading-5 text-stone-500">Backup ${escapeHtml(String(preview.backup.formatVersion))} from ${backupDate(preview.backup.createdAt)}.</p>
+        <div class="mt-5 grid grid-cols-2 gap-3 text-center">
+          ${overviewMetric("Orders", summary.orders, "bg-sage text-forest")}
+          ${overviewMetric("Customers", summary.customers, "bg-sage text-forest")}
+          ${overviewMetric("Order items", summary.orderItems, "bg-cream text-cocoa")}
+          ${overviewMetric("Staff assignments", summary.staff, "bg-cream text-cocoa")}
+        </div>
+        <div class="mt-4 rounded-2xl bg-cream p-4">
+          <p class="text-xs font-bold text-stone-500">Historical sales</p>
+          <p class="mt-1 text-xl font-extrabold text-forest">${formatMoney(summary.totalSales)}</p>
+        </div>
+        <div class="mt-3 rounded-2xl border border-stone-200 p-4 text-xs">
+          <p class="font-extrabold text-forest">Duplicate detection</p>
+          <p class="mt-1 leading-5 text-stone-500">${preview.previewLoading ? "Checking Shared Workspace..." : `${duplicateTotal} matching record${duplicateTotal === 1 ? "" : "s"} found by permanent record ID.`}</p>
+          ${!preview.previewLoading && duplicateTotal ? `<p class="mt-2 font-bold text-stone-600">${Number(duplicates.orders || 0)} orders · ${Number(duplicates.customers || 0)} customers · ${Number(duplicates.orderItems || 0)} items · ${Number(duplicates.pricing || 0)} prices</p>` : ""}
+        </div>
+        <label class="mt-5 block">
+          <span class="label">When records already exist</span>
+          <select class="field" data-restore-strategy>
+            <option value="skip">Keep current records (recommended)</option>
+            <option value="overwrite">Overwrite with backup values</option>
+          </select>
+        </label>
+        <p class="mt-3 rounded-2xl bg-amber-50 p-4 text-xs leading-5 text-amber-900">A PreRestoreBackup safety copy will be created before any data changes. Staff Auth accounts are never created or deleted by restore.</p>
+        <div class="mt-5 grid grid-cols-2 gap-3">
+          <button data-cancel-restore class="min-h-12 rounded-xl border border-stone-200 px-4 text-sm font-extrabold text-stone-600">Cancel</button>
+          <button data-confirm-restore class="min-h-12 rounded-xl bg-orange px-4 text-sm font-extrabold text-white">Restore Backup</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderMissedBackupPrompt() {
+  if (!state.missedBackupPrompt) return "";
+  return `
+    <div class="fixed inset-0 z-[84] grid place-items-end bg-ink/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="dialog" aria-modal="true">
+      <section class="modal-enter w-full max-w-md rounded-t-3xl bg-white p-6 sm:rounded-3xl">
+        <p class="text-xs font-extrabold uppercase tracking-[0.16em] text-amber-700">Backup attention</p>
+        <h2 class="mt-2 text-xl font-extrabold text-forest">Scheduled backup was missed while OMS was offline.</h2>
+        <p class="mt-3 text-sm leading-6 text-stone-600">Run it now to keep Tastory's recovery copy current.</p>
+        <div class="mt-5 grid grid-cols-2 gap-3">
+          <button data-dismiss-missed-backup class="min-h-12 rounded-xl border border-stone-200 px-4 text-sm font-extrabold text-stone-600">Remind Me Later</button>
+          <button data-run-missed-backup class="min-h-12 rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Run Backup Now</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderBackup() {
+  const config = BACKUP_MANAGER.readConfig(localStorage);
+  const status = BACKUP_MANAGER.readStatus(localStorage);
+  const last = status.lastBackup;
+  const next = BACKUP_MANAGER.nextScheduledAt(config, status.lastSuccessAt);
+  const destinationNames = {
+    download: "Download to device",
+    folder: "Selected backup folder",
+    both: "Selected folder + download copy",
+  };
+  return `
+    ${header("Backup & Restore", "Administration", `<button data-nav="settings" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    <main class="page-enter space-y-5 px-5 md:px-8">
+      ${!isCloudMode() ? `<section class="rounded-3xl border-2 border-amber-400 bg-amber-50 p-5 text-sm font-bold text-amber-950">Return to Shared Workspace before creating or restoring a production backup.</section>` : ""}
+      <section class="rounded-3xl bg-forest p-5 text-white shadow-soft">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-sage">Shared Workspace protection</p>
+            <h2 class="mt-1 text-xl font-extrabold">Backup status</h2>
+          </div>
+          <span class="rounded-full px-3 py-1 text-[10px] font-extrabold ${status.lastFailureAt && (!status.lastSuccessAt || status.lastFailureAt > status.lastSuccessAt) ? "bg-red-500" : "bg-sage text-forest"}">
+            ${status.lastFailureAt && (!status.lastSuccessAt || status.lastFailureAt > status.lastSuccessAt) ? "ATTENTION" : status.lastSuccessAt ? "PROTECTED" : "NO BACKUP"}
+          </span>
+        </div>
+        <dl class="mt-5 grid grid-cols-2 gap-4 text-xs">
+          <div><dt class="text-sage">Last successful backup</dt><dd class="mt-1 font-extrabold">${backupDate(status.lastSuccessAt)}</dd></div>
+          <div><dt class="text-sage">Next scheduled backup</dt><dd class="mt-1 font-extrabold">${backupDate(next)}</dd></div>
+          <div><dt class="text-sage">Destination</dt><dd class="mt-1 font-extrabold">${destinationNames[config.destination]}</dd></div>
+          <div><dt class="text-sage">Backup size</dt><dd class="mt-1 font-extrabold">${backupSize(last?.size)}</dd></div>
+          <div><dt class="text-sage">Orders</dt><dd class="mt-1 font-extrabold">${last?.counts?.orders ?? 0}</dd></div>
+          <div><dt class="text-sage">Customers</dt><dd class="mt-1 font-extrabold">${last?.counts?.customers ?? 0}</dd></div>
+        </dl>
+        ${status.lastError ? `<p class="mt-4 rounded-xl bg-red-500/20 p-3 text-xs font-bold">${escapeHtml(status.lastError)}</p>` : ""}
+      </section>
+
+      <section class="grid grid-cols-2 gap-3">
+        <button data-backup-now class="min-h-28 rounded-3xl bg-orange p-4 text-left text-white shadow-soft" ${state.backupBusy || !isCloudMode() ? "disabled" : ""}>
+          <span class="block text-base font-extrabold">${state.backupBusy ? "Working..." : "Backup Now"}</span>
+          <span class="mt-2 block text-xs leading-5 text-orange-50">Create a complete JSON recovery copy.</span>
+        </button>
+        <button data-restore-file class="min-h-28 rounded-3xl bg-white p-4 text-left text-forest shadow-soft" ${state.backupBusy || !isCloudMode() ? "disabled" : ""}>
+          <span class="block text-base font-extrabold">Restore Backup</span>
+          <span class="mt-2 block text-xs leading-5 text-stone-500">Preview a Tastory backup file first.</span>
+        </button>
+        <input data-restore-input class="hidden" type="file" accept=".json,application/json" />
+      </section>
+
+      <form id="backup-settings-form" class="rounded-3xl bg-white p-5 shadow-soft">
+        <h2 class="text-lg font-extrabold text-forest">Scheduled Backups</h2>
+        <p class="mt-1 text-xs leading-5 text-stone-500">If the OMS is closed at the scheduled time, Jane is prompted to run the missed backup on next login.</p>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <label><span class="label">Frequency</span><select class="field" name="frequency">
+            ${["daily", "weekly", "monthly"].map((value) => `<option value="${value}" ${config.frequency === value ? "selected" : ""}>${value[0].toUpperCase() + value.slice(1)}</option>`).join("")}
+          </select></label>
+          <label><span class="label">Backup time</span><input class="field" name="time" type="time" value="${escapeHtml(config.time)}" required /></label>
+          <label><span class="label">Destination</span><select class="field" name="destination">
+            <option value="both" ${config.destination === "both" ? "selected" : ""}>Folder + download</option>
+            <option value="folder" ${config.destination === "folder" ? "selected" : ""}>Selected folder</option>
+            <option value="download" ${config.destination === "download" ? "selected" : ""}>Download only</option>
+          </select></label>
+          <label><span class="label">Retention</span><select class="field" name="retention">
+            ${[7, 30, 90].map((days) => `<option value="${days}" ${config.retention === days ? "selected" : ""}>Keep ${days} days</option>`).join("")}
+          </select></label>
+        </div>
+        <div class="mt-4 rounded-2xl bg-cream p-4">
+          <p class="text-xs font-bold text-stone-500">Selected backup folder</p>
+          <p class="mt-1 text-sm font-extrabold text-forest">${escapeHtml(config.folderName || "Not selected")}</p>
+          <button type="button" data-select-backup-folder class="mt-3 min-h-11 w-full rounded-xl border border-stone-200 bg-white px-4 text-xs font-extrabold text-stone-600">Choose Backup Folder</button>
+          ${!window.showDirectoryPicker ? `<p class="mt-2 text-[11px] leading-4 text-amber-700">Folder selection is not supported by this browser. Backups will use downloads and protected app storage.</p>` : ""}
+        </div>
+        <button class="mt-4 min-h-12 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Save Backup Settings</button>
+      </form>
+
+      <section>
+        <div class="mb-3">
+          <h2 class="text-lg font-extrabold text-forest">Recovery Copies</h2>
+          <p class="text-xs text-stone-500">Stored privately on this device until retention expires.</p>
+        </div>
+        <div class="space-y-3">
+          ${state.backupRecords.length ? state.backupRecords.slice(0, 10).map((record) => `
+            <article class="rounded-2xl bg-white p-4 shadow-soft">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-extrabold text-forest">${escapeHtml(record.fileName)}</p>
+                  <p class="mt-1 text-xs text-stone-500">${backupDate(record.createdAt)} · ${backupSize(record.size)}</p>
+                </div>
+                <span class="rounded-full bg-cream px-2.5 py-1 text-[10px] font-extrabold text-cocoa">${escapeHtml(record.kind)}</span>
+              </div>
+              <div class="mt-3 flex items-center justify-between">
+                <p class="text-xs font-bold text-stone-500">${record.counts.orders} orders · ${record.counts.customers} customers</p>
+                <button data-preview-stored-backup="${record.id}" class="min-h-9 rounded-xl border border-stone-200 px-3 text-xs font-extrabold text-forest">Preview</button>
+              </div>
+            </article>
+          `).join("") : emptyState("No recovery copies yet", "Your retained backups will appear here.")}
+        </div>
+      </section>
+    </main>
+    ${renderRestorePreview()}
+    ${renderMissedBackupPrompt()}
   `;
 }
 
@@ -1580,6 +1757,222 @@ function downloadBlob(blob, fileName) {
   URL.revokeObjectURL(url);
 }
 
+async function writeBackupDestination(blob, fileName, config, { forceDownload = false } = {}) {
+  const results = { downloaded: false, folder: false, folderWarning: "" };
+  const wantsDownload = forceDownload || ["download", "both"].includes(config.destination);
+  const wantsFolder = ["folder", "both"].includes(config.destination);
+
+  if (wantsFolder && window.showDirectoryPicker) {
+    const handle = await BACKUP_MANAGER.getDirectoryHandle();
+    if (handle) {
+      let permission = await handle.queryPermission?.({ mode: "readwrite" });
+      if (permission !== "granted") permission = await handle.requestPermission({ mode: "readwrite" });
+      if (permission === "granted") {
+        const fileHandle = await handle.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        results.folder = true;
+      } else {
+        results.folderWarning = "Backup folder permission was not granted.";
+      }
+    } else {
+      results.folderWarning = "No backup folder has been selected.";
+    }
+  } else if (wantsFolder) {
+    results.folderWarning = "Selected folders are not supported by this browser.";
+  }
+
+  if (wantsDownload || (wantsFolder && !results.folder)) {
+    downloadBlob(blob, fileName);
+    results.downloaded = true;
+  }
+  return results;
+}
+
+async function refreshBackupRecords() {
+  if (!BACKUP_MANAGER || !window.indexedDB) return;
+  try {
+    state.backupRecords = await BACKUP_MANAGER.listBackups();
+  } catch (error) {
+    console.warn("Could not load retained backups.", error);
+  }
+}
+
+async function selectBackupFolder() {
+  if (!window.showDirectoryPicker) {
+    showToast("Folder selection is not supported here. Device downloads will be used.", "error");
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    await BACKUP_MANAGER.saveDirectoryHandle(handle);
+    const config = BACKUP_MANAGER.writeConfig(localStorage, {
+      ...BACKUP_MANAGER.readConfig(localStorage),
+      folderName: handle.name,
+    });
+    showToast(`Backup folder set to ${config.folderName}.`);
+    render();
+  } catch (error) {
+    if (error.name !== "AbortError") showToast(error.message || "Could not select the folder.", "error");
+  }
+}
+
+async function performSharedBackup({ kind = "manual", prefix = "TastoryBackup", forceDownload = false } = {}) {
+  if (!canUse("manageSettings") || !isCloudMode() || state.backupBusy) return null;
+  state.backupBusy = true;
+  render();
+  const config = BACKUP_MANAGER.readConfig(localStorage);
+  try {
+    const backup = await CLOUD.createSharedBackup();
+    const name = BACKUP_MANAGER.fileName(new Date(backup.createdAt), prefix);
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const record = await BACKUP_MANAGER.storeBackup(backup, { fileName: name, kind });
+    const destination = await writeBackupDestination(blob, name, config, { forceDownload });
+    await BACKUP_MANAGER.pruneBackups(config.retention);
+    const status = {
+      ...BACKUP_MANAGER.readStatus(localStorage),
+      lastSuccessAt: backup.createdAt,
+      lastFailureAt: null,
+      lastError: destination.folderWarning,
+      lastBackup: {
+        id: record.id,
+        fileName: name,
+        size: record.size,
+        counts: record.counts,
+        destination,
+      },
+    };
+    BACKUP_MANAGER.writeStatus(localStorage, status);
+    await CLOUD.logClientEvent(kind === "scheduled" ? "scheduled_backup_completed" : "backup_created", {
+      backup_id: backup.backupId,
+      file_name: name,
+      size_bytes: record.size,
+      order_count: record.counts.orders,
+      customer_count: record.counts.customers,
+      destination,
+      kind,
+    });
+    if (destination.downloaded) {
+      await CLOUD.logClientEvent("backup_downloaded", {
+        backup_id: backup.backupId,
+        file_name: name,
+        kind,
+      });
+    }
+    await refreshBackupRecords();
+    state.missedBackupPrompt = false;
+    showToast(`Backup completed successfully. ${backupSize(record.size)} saved.`);
+    return record;
+  } catch (error) {
+    const status = {
+      ...BACKUP_MANAGER.readStatus(localStorage),
+      lastFailureAt: new Date().toISOString(),
+      lastError: error.message || "Backup failed.",
+    };
+    BACKUP_MANAGER.writeStatus(localStorage, status);
+    try {
+      await CLOUD.logClientEvent("scheduled_backup_failed", {
+        error: status.lastError,
+        kind,
+      });
+    } catch {
+      // The visible failure remains available even when audit delivery is offline.
+    }
+    showToast(status.lastError, "error");
+    throw error;
+  } finally {
+    state.backupBusy = false;
+    render();
+  }
+}
+
+async function previewRestoreFile(file) {
+  try {
+    const backup = JSON.parse(await file.text());
+    const validation = BACKUP_MANAGER.validateBackup(backup);
+    if (!validation.valid) throw new Error(validation.errors[0]);
+    state.restorePreview = { backup, fileName: file.name, previewLoading: true };
+    render();
+    const databasePreview = await CLOUD.previewSharedRestore(backup);
+    if (state.restorePreview?.backup === backup) {
+      state.restorePreview = { ...state.restorePreview, databasePreview, previewLoading: false };
+      render();
+    }
+  } catch (error) {
+    state.restorePreview = null;
+    showToast(error.message || "Could not read this backup file.", "error");
+  }
+}
+
+async function previewStoredBackup(record) {
+  state.restorePreview = {
+    backup: record.backup,
+    fileName: record.fileName,
+    previewLoading: true,
+  };
+  render();
+  try {
+    const databasePreview = await CLOUD.previewSharedRestore(record.backup);
+    if (state.restorePreview?.backup === record.backup) {
+      state.restorePreview = { ...state.restorePreview, databasePreview, previewLoading: false };
+      render();
+    }
+  } catch (error) {
+    state.restorePreview = null;
+    render();
+    showToast(error.message || "Could not preview this recovery copy.", "error");
+  }
+}
+
+async function confirmRestoreBackup() {
+  const preview = state.restorePreview;
+  if (!preview || state.backupBusy) return;
+  const strategy = document.querySelector("[data-restore-strategy]")?.value || "skip";
+  if (!window.confirm(
+    `Restore ${preview.fileName} using "${strategy === "overwrite" ? "overwrite existing" : "keep current"}" conflict handling?\n\nA safety backup will be created first.`,
+  )) return;
+
+  state.restorePreview = null;
+  try {
+    await performSharedBackup({
+      kind: "pre-restore",
+      prefix: "PreRestoreBackup",
+      forceDownload: true,
+    });
+    state.backupBusy = true;
+    render();
+    const result = await CLOUD.restoreSharedBackup(preview.backup, strategy);
+    await refreshCloudWorkspace();
+    await refreshBackupRecords();
+    showToast(`Restore completed: ${result.orders} orders and ${result.customers} customers processed.`);
+  } catch (error) {
+    showToast(error.message || "Restore failed. No partial database changes were kept.", "error");
+  } finally {
+    state.backupBusy = false;
+    render();
+  }
+}
+
+function evaluateBackupHealth({ prompt = false } = {}) {
+  if (!canUse("manageSettings") || !isCloudMode()) return;
+  const config = BACKUP_MANAGER.readConfig(localStorage);
+  const status = BACKUP_MANAGER.readStatus(localStorage);
+  if (BACKUP_MANAGER.isMissed(config, status)) {
+    state.missedBackupPrompt = true;
+    return;
+  }
+  if (!status.lastSuccessAt && prompt) {
+    setTimeout(() => showToast("No business backup exists yet. Create the first backup from Administration.", "error"), 300);
+    return;
+  }
+  const age = Date.now() - new Date(status.lastSuccessAt).getTime();
+  if (prompt && age > 7 * 86400000) {
+    setTimeout(() => showToast("The last backup is older than 7 days.", "error"), 300);
+  }
+}
+
 function openExportDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(EXPORT_DB_NAME, 1);
@@ -1790,8 +2183,9 @@ function render() {
     pricing: renderPricing,
     staff: renderStaff,
     settings: renderSettings,
+    backup: renderBackup,
   };
-  app.innerHTML = `${emergencyBanner()}${pages[state.page]()}${bottomNav()}${safetyDialog()}`;
+  app.innerHTML = `${emergencyBanner()}${pages[state.page]()}${bottomNav()}${safetyDialog()}${state.page === "backup" ? "" : renderMissedBackupPrompt()}`;
   bindEvents();
   if (state.page === "new-order" && state.editingId) populateEditForm();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -1807,6 +2201,10 @@ async function navigate(page) {
   render();
   if (page === "staff" && canUse("manageStaff")) {
     await refreshStaff();
+    render();
+  }
+  if (page === "backup" && canUse("manageSettings")) {
+    await refreshBackupRecords();
     render();
   }
 }
@@ -1858,6 +2256,45 @@ function bindEvents() {
     render();
   });
   document.querySelector("[data-import-local]")?.addEventListener("click", importLocalDataToCloud);
+  document.querySelector("[data-backup-now]")?.addEventListener("click", () => performSharedBackup());
+  document.querySelector("[data-restore-file]")?.addEventListener("click", () => document.querySelector("[data-restore-input]")?.click());
+  document.querySelector("[data-restore-input]")?.addEventListener("change", (event) => {
+    const [file] = event.target.files || [];
+    if (file) previewRestoreFile(file);
+  });
+  document.querySelector("[data-select-backup-folder]")?.addEventListener("click", selectBackupFolder);
+  document.querySelector("#backup-settings-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const config = BACKUP_MANAGER.writeConfig(localStorage, {
+      ...BACKUP_MANAGER.readConfig(localStorage),
+      frequency: values.get("frequency"),
+      time: values.get("time"),
+      destination: values.get("destination"),
+      retention: Number(values.get("retention")),
+    });
+    await BACKUP_MANAGER.pruneBackups(config.retention);
+    await refreshBackupRecords();
+    render();
+    showToast("Backup schedule saved.");
+  });
+  document.querySelector("[data-cancel-restore]")?.addEventListener("click", () => {
+    state.restorePreview = null;
+    render();
+  });
+  document.querySelector("[data-confirm-restore]")?.addEventListener("click", confirmRestoreBackup);
+  document.querySelectorAll("[data-preview-stored-backup]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.backupRecords.find((item) => item.id === button.dataset.previewStoredBackup);
+      if (!record) return;
+      previewStoredBackup(record);
+    });
+  });
+  document.querySelector("[data-dismiss-missed-backup]")?.addEventListener("click", () => {
+    state.missedBackupPrompt = false;
+    render();
+  });
+  document.querySelector("[data-run-missed-backup]")?.addEventListener("click", () => performSharedBackup({ kind: "scheduled" }));
   document.querySelector("#staff-invite-form")?.addEventListener("submit", handleStaffInvite);
   document.querySelector("#staff-invite-form [name='role']")?.addEventListener("change", (event) => {
     const role = STAFF_ROLES.find((item) => item.code === event.target.value);
@@ -2362,6 +2799,7 @@ async function handleLogin(event) {
     }
     state.cloudLoading = false;
     state.page = "dashboard";
+    evaluateBackupHealth({ prompt: true });
     render();
   } catch (error) {
     if (isRevokedAccessError(error)) await CLOUD.signOut();
@@ -2604,6 +3042,7 @@ async function initializeApp() {
           state.orders = loadOrders();
         }
         await flushEmergencyAudits();
+        evaluateBackupHealth({ prompt: true });
       }
     } else if (localStorage.getItem(AUTH_SEEN_KEY)) {
       localStorage.removeItem(AUTH_SEEN_KEY);
@@ -2672,6 +3111,14 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") verifyCurrentStaffAccess();
 });
 setInterval(verifyCurrentStaffAccess, 60000);
+setInterval(() => {
+  if (!state.cloudSession || state.authNeedsPassword || state.backupBusy) return;
+  const config = BACKUP_MANAGER.readConfig(localStorage);
+  const status = BACKUP_MANAGER.readStatus(localStorage);
+  if (canUse("manageSettings") && isCloudMode() && BACKUP_MANAGER.isMissed(config, status)) {
+    performSharedBackup({ kind: "scheduled" }).catch(() => {});
+  }
+}, 60000);
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   window.addEventListener("load", () => {

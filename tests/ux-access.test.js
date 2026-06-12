@@ -5,7 +5,7 @@ const access = require("../ux-access.js");
 const session = { user: { id: "user-1" } };
 
 test("blocks every application page without authentication", () => {
-  ["dashboard", "orders", "production", "settings", "staff", "pricing"].forEach((page) => {
+  ["dashboard", "orders", "production", "settings", "staff", "pricing", "backup"].forEach((page) => {
     assert.equal(access.canAccessPage(page, null, ["admin"]), false);
   });
 });
@@ -16,11 +16,13 @@ test("allows authenticated staff to use operational pages", () => {
   });
 });
 
-test("restricts staff and pricing pages to Admin", () => {
+test("restricts administration pages to Admin", () => {
   assert.equal(access.canAccessPage("staff", session, ["manager"]), false);
   assert.equal(access.canAccessPage("pricing", session, ["sales_staff"]), false);
+  assert.equal(access.canAccessPage("backup", session, ["production_staff"]), false);
   assert.equal(access.canAccessPage("staff", session, ["admin"]), true);
   assert.equal(access.canAccessPage("pricing", session, ["admin"]), true);
+  assert.equal(access.canAccessPage("backup", session, ["admin"]), true);
 });
 
 test("restricts new order creation by role", () => {

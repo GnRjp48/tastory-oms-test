@@ -499,6 +499,29 @@
     if (error) throw error;
   }
 
+  async function createSharedBackup() {
+    const { data, error } = await getClient().rpc("create_oms_backup_snapshot");
+    if (error) throw error;
+    return data;
+  }
+
+  async function restoreSharedBackup(backup, conflictStrategy = "skip") {
+    const { data, error } = await getClient().rpc("restore_oms_backup", {
+      requested_backup: backup,
+      conflict_strategy: conflictStrategy,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  async function previewSharedRestore(backup) {
+    const { data, error } = await getClient().rpc("preview_oms_restore", {
+      requested_backup: backup,
+    });
+    if (error) throw error;
+    return data;
+  }
+
   window.TastoryCloud = {
     provider,
     setProvider,
@@ -527,6 +550,9 @@
     importLocalData,
     createBackup,
     logClientEvent,
+    createSharedBackup,
+    previewSharedRestore,
+    restoreSharedBackup,
     subscribe,
     unsubscribe,
   };

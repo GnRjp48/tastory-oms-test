@@ -4,7 +4,7 @@
   if (root) root.TastoryUxAccess = api;
 })(typeof window !== "undefined" ? window : globalThis, function () {
   const CREATE_ORDER_ROLES = ["admin", "manager", "sales_staff"];
-  const ADMIN_PAGES = ["staff", "pricing"];
+  const ADMIN_PAGES = ["staff", "pricing", "backup"];
 
   function isAuthenticated(session) {
     return Boolean(session?.user?.id);

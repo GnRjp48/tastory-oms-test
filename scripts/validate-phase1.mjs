@@ -55,6 +55,9 @@ const requiredFunctions = [
   "set_staff_active",
   "remove_staff_member",
   "log_oms_client_event",
+  "create_oms_backup_snapshot",
+  "preview_oms_restore",
+  "restore_oms_backup",
 ];
 const rlsTables = [
   "businesses",
