@@ -54,6 +54,7 @@ const requiredFunctions = [
   "change_staff_role",
   "set_staff_active",
   "remove_staff_member",
+  "log_oms_client_event",
 ];
 const rlsTables = [
   "businesses",

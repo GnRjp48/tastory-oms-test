@@ -372,8 +372,8 @@
     return data;
   }
 
-  function createBackup() {
-    if (localStorage.getItem(BACKUP_KEY)) {
+  function createBackup(refresh = false) {
+    if (!refresh && localStorage.getItem(BACKUP_KEY)) {
       return JSON.parse(localStorage.getItem(BACKUP_KEY));
     }
     const backup = {
@@ -395,9 +395,14 @@
   }
 
   async function importLocalData() {
-    const backup = createBackup();
-    const backupJson = JSON.stringify(backup);
-    const fileHash = await sha256(backupJson);
+    const backup = createBackup(true);
+    const fileHash = await sha256(JSON.stringify({
+      format: backup.format,
+      version: backup.version,
+      sourceOrigin: backup.sourceOrigin,
+      orders: backup.orders,
+      settings: backup.settings,
+    }));
     const counts = {
       orders: backup.orders.length,
       products: backup.settings.products?.length || 0,
@@ -410,6 +415,20 @@
       expected_counts: counts,
     });
     if (runError) throw runError;
+    const { data: existingRun, error: existingRunError } = await getClient()
+      .from("migration_runs")
+      .select("status,imported_counts")
+      .eq("id", runId)
+      .single();
+    if (existingRunError) throw existingRunError;
+    if (existingRun?.status === "completed") {
+      return {
+        importedOrders: Number(existingRun.imported_counts?.orders || 0),
+        importedProducts: Number(existingRun.imported_counts?.products || 0),
+        runId,
+        duplicate: true,
+      };
+    }
 
     try {
       const savedProducts = await saveCatalog(backup.settings.products || []);
@@ -472,6 +491,14 @@
     channel = null;
   }
 
+  async function logClientEvent(action, metadata = {}) {
+    const { error } = await getClient().rpc("log_oms_client_event", {
+      requested_action: action,
+      requested_metadata: metadata,
+    });
+    if (error) throw error;
+  }
+
   window.TastoryCloud = {
     provider,
     setProvider,
@@ -499,6 +526,7 @@
     saveCatalog,
     importLocalData,
     createBackup,
+    logClientEvent,
     subscribe,
     unsubscribe,
   };

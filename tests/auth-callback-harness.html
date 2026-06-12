@@ -59,6 +59,14 @@
       if (params.get("seed") === "expired") {
         localStorage.setItem("tastory-oms-authenticated-v1", "true");
       }
+      if (params.get("emergency") === "1") {
+        localStorage.setItem("tastory-oms-data-provider-v2", "local");
+        localStorage.setItem("tastory-oms-emergency-local-mode-v1", JSON.stringify({
+          active: true,
+          dirty: true,
+          enabledAt: new Date().toISOString(),
+        }));
+      }
       window.supabase = {
         createClient() {
           const invitedSession = {
@@ -189,6 +197,7 @@
     <script src="../auth-callback.js"></script>
     <script src="../staff-access.js"></script>
     <script src="../ux-access.js"></script>
+    <script src="../emergency-mode.js"></script>
     <script src="../supabase-client.js"></script>
     <script src="../app.js"></script>
     <script>
@@ -210,6 +219,18 @@
           form.elements.email.value = "jane@example.com";
           document.querySelector("[data-reset-password]")?.click();
         }, 250);
+      }
+      if (params.get("activate") === "1") {
+        setTimeout(async () => {
+          await navigate("settings");
+          document.querySelector("[data-use-local]")?.click();
+        }, 300);
+      }
+      if (params.get("exit") === "1") {
+        setTimeout(async () => {
+          await navigate("settings");
+          document.querySelector("[data-use-cloud]")?.click();
+        }, 300);
       }
     </script>
   </body>

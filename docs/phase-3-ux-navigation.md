@@ -33,13 +33,12 @@ Admins additionally receive:
 
 - Staff Management
 - Backup & Restore
-- Data Mode
+- Emergency Local Mode
 - Business Settings
 - Pricing Management
 
-The Data Mode control changes only the business-data provider. A valid Supabase
-identity and role remain mandatory while the emergency device fallback is
-active.
+Emergency Local Mode changes only the business-data provider. A valid Supabase
+Admin identity remains mandatory while the temporary local workspace is active.
 
 ## Dashboard
 

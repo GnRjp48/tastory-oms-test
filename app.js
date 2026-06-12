@@ -3,10 +3,29 @@ const SETTINGS_KEY = "tastory-oms-settings-v1";
 const CLOUD = window.TastoryCloud;
 const STAFF_ACCESS = window.TastoryStaffAccess;
 const UX_ACCESS = window.TastoryUxAccess;
+const EMERGENCY_MODE = window.TastoryEmergencyMode;
 const AUTH_SEEN_KEY = "tastory-oms-authenticated-v1";
 
 function isCloudMode() {
   return CLOUD?.provider() === "supabase";
+}
+
+function emergencyState() {
+  return EMERGENCY_MODE.read(localStorage);
+}
+
+function isEmergencyMode() {
+  return !isCloudMode() && emergencyState().active;
+}
+
+function hasLocalOnlyOrders(localOrders, sharedOrders) {
+  const sharedById = new Map(sharedOrders.map((order) => [order.id, order]));
+  return localOrders.some((localOrder) => {
+    const sharedOrder = sharedById.get(localOrder.id);
+    if (!sharedOrder) return true;
+    if (!localOrder.updatedAt) return false;
+    return !sharedOrder.updatedAt || localOrder.updatedAt > sharedOrder.updatedAt;
+  });
 }
 
 function cloudRoles() {
@@ -138,6 +157,7 @@ const state = {
   staffLoaded: false,
   staffLoading: false,
   profileMenuOpen: false,
+  safetyDialog: "",
 };
 
 function icon(name, classes = "h-5 w-5") {
@@ -325,6 +345,7 @@ function loadOrders() {
 function saveOrders() {
   if (isCloudMode()) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.orders));
+  if (isEmergencyMode()) EMERGENCY_MODE.markDirty(localStorage);
 }
 
 function escapeHtml(value = "") {
@@ -553,11 +574,13 @@ function renderLogin() {
 
 function dataModeSettings() {
   if (!isCloudMode()) {
+    const pending = emergencyState().dirty;
     return `
-      <section id="data-mode" class="rounded-3xl border border-amber-200 bg-amber-50 p-5">
-        <p class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">Emergency fallback active</p>
-        <h2 class="mt-1 text-lg font-extrabold text-forest">This device's saved data</h2>
-        <p class="mt-2 text-xs leading-5 text-amber-800">Changes are currently limited to this device. Return to the shared workspace for normal multi-user operation.</p>
+      <section id="data-mode" class="rounded-3xl border-2 border-amber-400 bg-amber-50 p-5">
+        <p class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">Emergency Local Mode active</p>
+        <h2 class="mt-1 text-lg font-extrabold text-amber-950">Current device only</h2>
+        <p class="mt-2 text-xs leading-5 text-amber-900">For temporary use only when Shared Workspace is unavailable. Orders are not shared with other staff.</p>
+        ${pending ? '<p class="mt-3 rounded-xl bg-red-100 p-3 text-xs font-extrabold text-red-800">Local data has not been synchronized.</p>' : ""}
         <button data-use-cloud class="mt-4 min-h-11 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Return to Shared Workspace</button>
       </section>
     `;
@@ -572,8 +595,75 @@ function dataModeSettings() {
         </div>
         <span class="rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-extrabold text-white">LIVE</span>
       </div>
-      <button data-use-local class="mt-4 min-h-11 w-full rounded-xl border border-emerald-300 bg-white px-3 text-xs font-extrabold text-emerald-800">Use Emergency Device Fallback</button>
+      <button data-use-local class="mt-4 min-h-11 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-extrabold text-amber-900">Enable Emergency Local Mode</button>
     </section>
+  `;
+}
+
+function emergencyBanner() {
+  if (!isEmergencyMode()) return "";
+  return `
+    <aside class="sticky top-0 z-30 border-b border-amber-400 bg-amber-300 px-4 py-3 text-amber-950 shadow-sm" role="status">
+      <div class="mx-auto flex max-w-3xl items-start gap-3">
+        <span class="text-lg font-black" aria-hidden="true">!</span>
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[0.12em]">Emergency Local Mode Active</p>
+          <p class="mt-0.5 text-xs font-semibold leading-5">Orders are stored only on this device. Changes are not shared with other users.</p>
+        </div>
+      </div>
+    </aside>
+  `;
+}
+
+function emergencyDashboardCard() {
+  if (!isEmergencyMode()) return "";
+  return `
+    <section class="rounded-3xl border-2 border-amber-400 bg-amber-50 p-5 shadow-soft">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-xs font-extrabold uppercase tracking-[0.14em] text-amber-700">Business continuity only</p>
+          <h2 class="mt-1 text-xl font-extrabold text-amber-950">Emergency Local Mode</h2>
+        </div>
+        <span class="rounded-full bg-amber-400 px-3 py-1 text-[10px] font-extrabold text-amber-950">LOCAL</span>
+      </div>
+      <div class="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] font-bold text-amber-900">
+        <div class="rounded-xl bg-white p-3">Current device only</div>
+        <div class="rounded-xl bg-white p-3">Not synchronized</div>
+        <div class="rounded-xl bg-white p-3">Staff cannot see orders</div>
+      </div>
+    </section>
+  `;
+}
+
+function safetyDialog() {
+  if (!state.safetyDialog) return "";
+  const enable = state.safetyDialog === "enable-emergency";
+  return `
+    <div class="fixed inset-0 z-[80] grid place-items-end bg-ink/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="safety-dialog-title">
+      <section class="modal-enter w-full max-w-md rounded-t-3xl bg-white p-6 sm:rounded-3xl">
+        <p class="text-xs font-extrabold uppercase tracking-[0.18em] text-amber-700">${enable ? "Warning" : "Unsynchronized local data"}</p>
+        <h2 id="safety-dialog-title" class="mt-2 text-xl font-extrabold text-forest">${enable ? "Switch to Emergency Local Mode?" : "Return to Shared Workspace?"}</h2>
+        ${enable ? `
+          <div class="mt-4 space-y-2 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+            <p>Emergency Local Mode stores orders only on this device.</p>
+            <p class="font-extrabold">Other staff members will not see these orders.</p>
+            <p>You must synchronize or import the data later.</p>
+          </div>
+          <div class="mt-5 grid grid-cols-2 gap-3">
+            <button data-cancel-safety class="min-h-12 rounded-xl border border-stone-200 px-4 text-sm font-extrabold text-stone-600">Cancel</button>
+            <button data-confirm-emergency class="min-h-12 rounded-xl bg-amber-500 px-4 text-sm font-extrabold text-amber-950">Switch to Emergency Mode</button>
+          </div>
+        ` : `
+          <p class="mt-3 text-sm leading-6 text-stone-600">Local data has not been synchronized. Choose how to protect it before continuing.</p>
+          <div class="mt-5 space-y-3">
+            <button data-exit-import class="min-h-12 w-full rounded-xl bg-forest px-4 text-sm font-extrabold text-white">Import Local Orders</button>
+            <button data-exit-export class="min-h-12 w-full rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-extrabold text-amber-900">Export Backup</button>
+            <button data-exit-anyway class="min-h-12 w-full rounded-xl border border-red-200 px-4 text-sm font-extrabold text-red-600">Continue Anyway</button>
+            <button data-cancel-safety class="min-h-11 w-full text-sm font-bold text-stone-500">Stay in Emergency Mode</button>
+          </div>
+        `}
+      </section>
+    </div>
   `;
 }
 
@@ -592,7 +682,7 @@ function profileMenu() {
         ${admin ? `
           <button data-nav="staff" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Staff Management</button>
           <button data-nav="settings" data-settings-target="backup" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Backup & Restore</button>
-          <button data-nav="settings" data-settings-target="data-mode" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Data Mode</button>
+          <button data-nav="settings" data-settings-target="data-mode" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Emergency Local Mode</button>
           <button data-nav="settings" data-settings-target="business-settings" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Business Settings</button>
           <button data-nav="pricing" class="min-h-12 w-full rounded-2xl px-3 text-left text-sm font-bold text-stone-700">Pricing Management</button>
         ` : ""}
@@ -654,6 +744,7 @@ function renderDashboard() {
   return `
     ${header(`Good morning, ${escapeHtml(currentUserName())}`, "Tastory OMS", profileButton())}
     <main class="page-enter space-y-6 px-5 md:px-8">
+      ${emergencyDashboardCard()}
       <section class="overflow-hidden rounded-3xl bg-forest p-5 text-white shadow-soft">
         <div class="flex items-start justify-between">
           <div>
@@ -1679,11 +1770,13 @@ function renderOrderModal(order) {
 function render() {
   const app = document.querySelector("#app");
   if (!UX_ACCESS.isAuthenticated(state.cloudSession) || state.authNeedsPassword) {
+    document.body.classList.remove("emergency-local-active");
     app.className = "mx-auto min-h-screen max-w-3xl";
     app.innerHTML = renderLogin();
     bindEvents();
     return;
   }
+  document.body.classList.toggle("emergency-local-active", isEmergencyMode());
   app.className = "mx-auto min-h-screen max-w-3xl pb-28";
   if (!UX_ACCESS.canAccessPage(state.page, state.cloudSession, cloudRoles())) {
     state.page = "dashboard";
@@ -1698,7 +1791,7 @@ function render() {
     staff: renderStaff,
     settings: renderSettings,
   };
-  app.innerHTML = `${pages[state.page]()}${bottomNav()}`;
+  app.innerHTML = `${emergencyBanner()}${pages[state.page]()}${bottomNav()}${safetyDialog()}`;
   bindEvents();
   if (state.page === "new-order" && state.editingId) populateEditForm();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -1723,33 +1816,26 @@ function bindEvents() {
   document.querySelector("#password-update-form")?.addEventListener("submit", handlePasswordUpdate);
   document.querySelector("[data-reset-password]")?.addEventListener("click", handlePasswordReset);
   document.querySelectorAll("[data-use-local]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       if (!canUse("manageSettings")) return;
-      CLOUD?.unsubscribe();
-      CLOUD?.setProvider("local");
-      state.cloudError = "";
-      appSettings = loadSettings();
-      PRODUCTS = appSettings.products;
-      state.orders = loadOrders();
+      state.safetyDialog = "enable-emergency";
       render();
-      showToast("Emergency device fallback is active.");
     });
   });
   document.querySelector("[data-use-cloud]")?.addEventListener("click", () => {
     if (!canUse("manageSettings")) return;
-    CLOUD?.setProvider("supabase");
-    state.cloudError = "";
-    refreshCloudWorkspace()
-      .then(() => {
-        CLOUD.subscribe(async () => {
-          await refreshCloudWorkspace({ quiet: true });
-          render();
-        });
-        render();
-        showToast("Shared workspace restored.");
-      })
-      .catch((error) => showToast(error.message || "Could not open the shared workspace.", "error"));
+    requestSharedWorkspace();
   });
+  document.querySelectorAll("[data-cancel-safety]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.safetyDialog = "";
+      render();
+    });
+  });
+  document.querySelector("[data-confirm-emergency]")?.addEventListener("click", enableEmergencyMode);
+  document.querySelector("[data-exit-import]")?.addEventListener("click", importEmergencyDataAndExit);
+  document.querySelector("[data-exit-export]")?.addEventListener("click", exportEmergencyBackup);
+  document.querySelector("[data-exit-anyway]")?.addEventListener("click", () => exitEmergencyMode({ synchronized: false }));
   document.querySelectorAll("[data-sign-out]").forEach((button) => {
     button.addEventListener("click", async () => {
       CLOUD.unsubscribe();
@@ -2337,12 +2423,135 @@ async function handlePasswordUpdate(event) {
   }
 }
 
+async function recordEmergencyAudit(action, metadata = {}) {
+  const payload = {
+    ...metadata,
+    provider: CLOUD.provider(),
+    recorded_at: new Date().toISOString(),
+  };
+  try {
+    await CLOUD.logClientEvent(action, payload);
+  } catch {
+    EMERGENCY_MODE.queueAudit(localStorage, action, payload);
+  }
+}
+
+async function flushEmergencyAudits() {
+  for (const entry of EMERGENCY_MODE.queuedAudits(localStorage)) {
+    try {
+      await CLOUD.logClientEvent(entry.action, {
+        ...entry.metadata,
+        originally_recorded_at: entry.occurredAt,
+        queued_offline: true,
+      });
+      EMERGENCY_MODE.removeQueuedAudit(localStorage, entry.id);
+    } catch {
+      break;
+    }
+  }
+}
+
+async function enableEmergencyMode() {
+  if (!canUse("manageSettings")) return;
+  const localOrders = loadOrders();
+  const existingLocalOnlyData = hasLocalOnlyOrders(localOrders, state.orders);
+  CLOUD.unsubscribe();
+  await recordEmergencyAudit("emergency_mode_enabled", {
+    pending_local_data: emergencyState().dirty || existingLocalOnlyData,
+  });
+  EMERGENCY_MODE.enable(localStorage, { dirty: existingLocalOnlyData });
+  CLOUD.setProvider("local");
+  state.safetyDialog = "";
+  state.cloudError = "";
+  appSettings = loadSettings();
+  PRODUCTS = appSettings.products;
+  state.orders = localOrders;
+  render();
+  showToast("Emergency Local Mode is active.", "error");
+}
+
+async function requestSharedWorkspace() {
+  if (!canUse("manageSettings")) return;
+  if (emergencyState().dirty) {
+    state.safetyDialog = "exit-emergency";
+    render();
+    return;
+  }
+  await exitEmergencyMode({ synchronized: true });
+}
+
+async function exitEmergencyMode({ synchronized }) {
+  if (!canUse("manageSettings")) return;
+  state.safetyDialog = "";
+  CLOUD.setProvider("supabase");
+  state.cloudError = "";
+  try {
+    await refreshCloudWorkspace();
+    await recordEmergencyAudit("emergency_mode_disabled", {
+      synchronized,
+      continued_with_pending_local_data: !synchronized && emergencyState().dirty,
+    });
+    EMERGENCY_MODE.disable(localStorage, { synchronized });
+    await flushEmergencyAudits();
+    CLOUD.subscribe(async () => {
+      await refreshCloudWorkspace({ quiet: true });
+      render();
+    });
+    render();
+    showToast("Shared Workspace restored.");
+  } catch (error) {
+    CLOUD.setProvider("local");
+    EMERGENCY_MODE.enable(localStorage);
+    showToast(error.message || "Shared Workspace is unavailable. Emergency Local Mode remains active.", "error");
+    render();
+  }
+}
+
+async function exportEmergencyBackup() {
+  const backup = CLOUD.createBackup(true);
+  const fileName = `TastoryEmergencyBackup_${localDateKey()}.json`;
+  downloadBlob(
+    new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
+    fileName,
+  );
+  await recordEmergencyAudit("local_data_exported", {
+    file_name: fileName,
+    order_count: backup.orders.length,
+  });
+  state.safetyDialog = "";
+  render();
+  showToast(`${fileName} exported. Local data is still awaiting synchronization.`);
+}
+
+async function importEmergencyDataAndExit() {
+  if (!canUse("manageSettings")) return;
+  try {
+    const result = await CLOUD.importLocalData();
+    await recordEmergencyAudit("local_data_imported", {
+      imported_orders: result.importedOrders,
+      imported_products: result.importedProducts,
+      migration_run_id: result.runId,
+    });
+    EMERGENCY_MODE.markSynchronized(localStorage);
+    await exitEmergencyMode({ synchronized: true });
+    showToast(`Imported ${result.importedOrders} local orders into Shared Workspace.`);
+  } catch (error) {
+    showToast(error.message || "Local data import failed. Emergency Local Mode remains active.", "error");
+  }
+}
+
 async function importLocalDataToCloud() {
   if (!window.confirm("Create a protected browser backup and import this device's saved orders and pricing into the shared workspace?")) {
     return;
   }
   try {
     const result = await CLOUD.importLocalData();
+    await recordEmergencyAudit("local_data_imported", {
+      imported_orders: result.importedOrders,
+      imported_products: result.importedProducts,
+      migration_run_id: result.runId,
+      source: "settings",
+    });
     await refreshCloudWorkspace();
     render();
     showToast(`Imported ${result.importedOrders} orders and ${result.importedProducts} products.`);
@@ -2355,6 +2564,9 @@ async function initializeApp() {
   state.cloudLoading = true;
   state.cloudError = "";
   try {
+    if (!isCloudMode() && !emergencyState().active) {
+      CLOUD.setProvider("supabase");
+    }
     const callback = await CLOUD.processAuthCallback();
     if (callback.session) {
       state.cloudSession = callback.session;
@@ -2372,6 +2584,12 @@ async function initializeApp() {
       if (!state.authNeedsPassword) {
         await CLOUD.touchSession();
         localStorage.setItem(AUTH_SEEN_KEY, "true");
+        const access = await CLOUD.loadAccessContext();
+        state.cloudRoleCodes = access.roles || [];
+        if (!isCloudMode() && !state.cloudRoleCodes.includes("admin")) {
+          CLOUD.setProvider("supabase");
+          EMERGENCY_MODE.disable(localStorage, { synchronized: false });
+        }
         if (isCloudMode()) {
           await refreshCloudWorkspace();
           CLOUD.subscribe(async () => {
@@ -2385,6 +2603,7 @@ async function initializeApp() {
           PRODUCTS = appSettings.products;
           state.orders = loadOrders();
         }
+        await flushEmergencyAudits();
       }
     } else if (localStorage.getItem(AUTH_SEEN_KEY)) {
       localStorage.removeItem(AUTH_SEEN_KEY);

@@ -13,6 +13,8 @@ The invitation and password-recovery callback correction is documented in
 [`docs/phase-3-auth-callback-fix.md`](docs/phase-3-auth-callback-fix.md).
 The authenticated navigation and Settings redesign is documented in
 [`docs/phase-3-ux-navigation.md`](docs/phase-3-ux-navigation.md).
+Emergency Local Mode safety behavior is documented in
+[`docs/phase-4-emergency-local-mode.md`](docs/phase-4-emergency-local-mode.md).
 
 ## Features
 
@@ -35,6 +37,7 @@ The authenticated navigation and Settings redesign is documented in
 - Supabase email/password authentication and password reset
 - Dedicated login screen with authenticated route protection
 - Profile menu and role-aware Settings area
+- Admin-only Emergency Local Mode with persistent warnings and guarded exit
 - Admin-only staff invitations, roles, activation, removal, and invitation tracking
 - Realtime order updates across signed-in devices in Supabase mode
 - Local browser storage with sample data on first launch
@@ -44,7 +47,7 @@ The authenticated navigation and Settings redesign is documented in
 
 - Every operational screen requires a valid Supabase staff session.
 - The shared workspace supports authenticated, realtime business data.
-- Admins can activate the emergency device fallback from Settings without
+- Admins can activate Emergency Local Mode from Settings without
   bypassing authentication or role permissions.
 - Google Sheets and Hermes are not connected.
 

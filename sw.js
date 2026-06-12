@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v3.1.0-authenticated-navigation";
+const CACHE_NAME = "tastory-oms-v4.0.0-emergency-local-safety";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const APP_SHELL = [
   "./auth-callback.js",
   "./staff-access.js",
   "./ux-access.js",
+  "./emergency-mode.js",
   "./supabase-client.js",
   "./app.js",
   "./manifest.webmanifest",
