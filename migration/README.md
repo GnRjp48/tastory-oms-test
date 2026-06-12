@@ -18,7 +18,7 @@ The migration exporter must create a JSON file matching `local-backup.schema.jso
   "format": "tastory-oms-backup",
   "version": 1,
   "exportedAt": "2026-06-09T00:00:00.000Z",
-  "sourceOrigin": "https://tastory4u.com",
+  "sourceOrigin": "https://oms.tastory4u.com",
   "orders": [],
   "settings": {}
 }

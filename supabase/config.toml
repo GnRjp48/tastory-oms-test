@@ -25,10 +25,12 @@ port = 54324
 
 [auth]
 enabled = true
-site_url = "http://localhost:8000"
+site_url = "https://oms.tastory4u.com"
 additional_redirect_urls = [
   "http://localhost:8000",
   "http://localhost:8000/?auth=reset",
+  "http://127.0.0.1:8000",
+  "http://127.0.0.1:8000/?auth=reset",
   "https://tastory4u.com",
   "https://tastory4u.com/?auth=reset",
   "https://www.tastory4u.com",

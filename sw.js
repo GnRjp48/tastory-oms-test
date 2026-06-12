@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v5.0.0-backup-restore";
+const CACHE_NAME = "tastory-oms-v6.0.0-domain-separation";
 const APP_SHELL = [
   "./",
   "./index.html",

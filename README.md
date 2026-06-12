@@ -63,13 +63,14 @@ The PWA manifest and service worker are included, so Chrome can install Tastory 
 
 ## Custom Domain
 
-The GitHub Pages custom domain is configured through the root `CNAME` file:
+The production OMS custom domain is configured through the root `CNAME` file:
 
 ```text
-tastory4u.com
+oms.tastory4u.com
 ```
 
-The apex domain and `www` DNS records must point to GitHub Pages before HTTPS can be enabled.
+The `oms` DNS record must point to `gnrjp48.github.io`. The apex domain and
+`www` are reserved for the separate public Tastory website.
 
 ## Export Notes
 

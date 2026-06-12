@@ -4,7 +4,7 @@ const callback = require("../auth-callback.js");
 
 test("parses invitation fragment tokens ahead of a cached session", () => {
   const result = callback.parse(
-    "https://tastory4u.com/#access_token=invite-token&refresh_token=invite-refresh&type=invite",
+    "https://oms.tastory4u.com/#access_token=invite-token&refresh_token=invite-refresh&type=invite",
   );
   assert.equal(result.active, true);
   assert.equal(result.mode, "invite");
@@ -13,14 +13,14 @@ test("parses invitation fragment tokens ahead of a cached session", () => {
 
 test("parses password recovery fragment tokens", () => {
   const result = callback.parse(
-    "https://tastory4u.com/?auth=reset#access_token=recovery-token&refresh_token=recovery-refresh&type=recovery",
+    "https://oms.tastory4u.com/?auth=reset#access_token=recovery-token&refresh_token=recovery-refresh&type=recovery",
   );
   assert.equal(result.active, true);
   assert.equal(result.mode, "recovery");
 });
 
 test("parses PKCE callback codes", () => {
-  const result = callback.parse("https://tastory4u.com/?auth=reset&code=pkce-code");
+  const result = callback.parse("https://oms.tastory4u.com/?auth=reset&code=pkce-code");
   assert.equal(result.active, true);
   assert.equal(result.code, "pkce-code");
   assert.equal(result.mode, "recovery");
@@ -28,7 +28,7 @@ test("parses PKCE callback codes", () => {
 
 test("parses token hash callbacks", () => {
   const result = callback.parse(
-    "https://tastory4u.com/?token_hash=hashed&type=invite",
+    "https://oms.tastory4u.com/?token_hash=hashed&type=invite",
   );
   assert.equal(result.active, true);
   assert.equal(result.mode, "invite");
@@ -70,7 +70,7 @@ test("sets invitation tokens as the authoritative session", async () => {
     },
   };
   const result = await callback.exchange(client, callback.parse(
-    "https://tastory4u.com/#access_token=new&refresh_token=refresh&type=invite",
+    "https://oms.tastory4u.com/#access_token=new&refresh_token=refresh&type=invite",
   ));
   assert.deepEqual(received, { access_token: "new", refresh_token: "refresh" });
   assert.equal(result.session.user.id, "invited-user");
@@ -88,7 +88,7 @@ test("uses verifyOtp for token hash invitation links", async () => {
     },
   };
   await callback.exchange(client, callback.parse(
-    "https://tastory4u.com/?token_hash=hashed&type=invite",
+    "https://oms.tastory4u.com/?token_hash=hashed&type=invite",
   ));
   assert.deepEqual(received, { token_hash: "hashed", type: "invite" });
 });
@@ -104,7 +104,7 @@ test("exchanges password recovery PKCE codes", async () => {
     },
   };
   const result = await callback.exchange(client, callback.parse(
-    "https://tastory4u.com/?auth=reset&code=recovery-code",
+    "https://oms.tastory4u.com/?auth=reset&code=recovery-code",
   ));
   assert.equal(received, "recovery-code");
   assert.equal(result.mode, "recovery");
@@ -113,14 +113,14 @@ test("exchanges password recovery PKCE codes", async () => {
 test("reports expired or invalid callback errors", async () => {
   await assert.rejects(
     callback.exchange({}, callback.parse(
-      "https://tastory4u.com/?error=access_denied&error_description=Invite%20link%20expired",
+      "https://oms.tastory4u.com/?error=access_denied&error_description=Invite%20link%20expired",
     )),
     /Invite link expired/,
   );
 });
 
 test("ignores ordinary OMS navigation URLs", () => {
-  const result = callback.parse("https://tastory4u.com/?page=orders");
+  const result = callback.parse("https://oms.tastory4u.com/?page=orders");
   assert.equal(result.active, false);
   assert.equal(result.mode, "");
 });
@@ -128,7 +128,7 @@ test("ignores ordinary OMS navigation URLs", () => {
 test("keeps password mode while removing credentials from the URL", () => {
   assert.equal(
     callback.cleanUrl(
-      "https://tastory4u.com/?auth=reset#access_token=secret&refresh_token=secret&type=recovery",
+      "https://oms.tastory4u.com/?auth=reset#access_token=secret&refresh_token=secret&type=recovery",
       "recovery",
     ),
     "/?auth=recovery",

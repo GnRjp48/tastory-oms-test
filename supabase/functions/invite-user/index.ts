@@ -343,7 +343,7 @@ async function sendInvitation(
   fullName: string,
 ) {
   const redirectTo =
-    Deno.env.get("AUTH_REDIRECT_URL") ?? "https://tastory4u.com";
+    Deno.env.get("AUTH_REDIRECT_URL") ?? "https://oms.tastory4u.com";
   const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
     redirectTo,
     data: { full_name: fullName },
