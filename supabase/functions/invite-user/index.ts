@@ -123,17 +123,6 @@ async function inviteStaff(
     );
   }
 
-  const { data: existingMembership } = await adminClient
-    .from("users")
-    .select("id,user_roles!inner(business_id)")
-    .eq("email", email)
-    .eq("user_roles.business_id", businessId)
-    .maybeSingle();
-
-  if (existingMembership) {
-    return json({ error: "This email is already a Tastory staff member." }, 409);
-  }
-
   const { data: pendingInvitation } = await adminClient
     .from("staff_invitations")
     .select("id")
@@ -151,26 +140,11 @@ async function inviteStaff(
 
   const role = await findRole(adminClient, roleCode);
   const existingAuthUser = await findAuthUserByEmail(adminClient, email);
-  const { data: existingProfiles, error: profileLookupError } = await adminClient
-    .from("users")
-    .select("id,is_active,active_business_id,user_roles(business_id)")
-    .ilike("email", email)
-    .limit(10);
-
-  if (profileLookupError) {
-    throw new Error("Unable to check existing staff profiles.");
-  }
-
-  const existingProfile = existingAuthUser
-    ? existingProfiles?.find((profile) => profile.id === existingAuthUser.id)
-    : existingProfiles?.[0];
-  const existingUserId = existingAuthUser?.id ?? existingProfile?.id;
-
-  if (existingUserId) {
+  if (existingAuthUser) {
     const { data: existingRoles, error: roleLookupError } = await adminClient
       .from("user_roles")
       .select("business_id")
-      .eq("user_id", existingUserId);
+      .eq("user_id", existingAuthUser.id);
 
     if (roleLookupError) {
       throw new Error("Unable to check existing staff access.");
@@ -188,7 +162,7 @@ async function inviteStaff(
       mailClient,
       callerId,
       businessId,
-      existingUserId,
+      existingAuthUser.id,
       email,
       fullName,
       role.id,

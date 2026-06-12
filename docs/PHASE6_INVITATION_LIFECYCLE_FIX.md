@@ -49,10 +49,11 @@ Active staff and accounts that still have a Tastory role remain protected
 from duplicate invitations.
 
 The account lookup uses Supabase Auth as the authoritative source and then
-checks Tastory role assignments by Auth user ID. This also supports historical
-accounts whose `public.users` profile is missing, duplicated, or has a stale
-email value; those accounts no longer fall through to the new-user invitation
-API and trigger an "already registered" error.
+checks `public.user_roles` directly by Auth user ID. It does not depend on a
+joined `public.users` profile query. This also supports historical accounts
+whose profile is missing or stale, and avoids ambiguous PostgREST relationship
+lookups before the email is sent. Those accounts no longer fall through to the
+new-user invitation API and trigger an "already registered" error.
 
 ## Regression Coverage
 

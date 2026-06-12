@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v6.0.3-auth-account-reinvitation";
+const CACHE_NAME = "tastory-oms-v6.0.4-direct-auth-reinvitation";
 const APP_SHELL = [
   "./",
   "./index.html",
