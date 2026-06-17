@@ -5,6 +5,7 @@ const STAFF_ACCESS = window.TastoryStaffAccess;
 const UX_ACCESS = window.TastoryUxAccess;
 const EMERGENCY_MODE = window.TastoryEmergencyMode;
 const BACKUP_MANAGER = window.TastoryBackupManager;
+const DASHBOARD_METRICS = window.TastoryDashboardMetrics;
 const AUTH_SEEN_KEY = "tastory-oms-authenticated-v1";
 
 function isCloudMode() {
@@ -457,7 +458,7 @@ function itemCount(order) {
 }
 
 function isActive(order) {
-  return !["Delivered", "Closed"].includes(order.productionStatus);
+  return DASHBOARD_METRICS.isActiveOrder(order);
 }
 
 function productionColor(status) {
@@ -523,13 +524,7 @@ function dailyOrders(dateKey = localDateKey()) {
 }
 
 function orderOverview(orders = dailyOrders()) {
-  return {
-    total: orders.length,
-    pending: orders.filter((order) => ["New Order", "Waiting For Batch"].includes(order.productionStatus)).length,
-    inProgress: orders.filter((order) => ["Scheduled For Baking", "Baking", "Packed", "Ready For Delivery"].includes(order.productionStatus)).length,
-    completed: orders.filter((order) => ["Delivered", "Closed"].includes(order.productionStatus)).length,
-    cancelled: orders.filter((order) => order.productionStatus === "Cancelled").length,
-  };
+  return DASHBOARD_METRICS.orderOverview(orders);
 }
 
 function overviewMetric(label, value, tone) {
@@ -734,17 +729,11 @@ function bottomNav() {
 }
 
 function renderDashboard() {
-  const active = state.orders.filter(isActive);
-  const ready = active.filter((order) => order.productionStatus === "Ready For Delivery");
+  const metrics = DASHBOARD_METRICS.dashboardMetrics(state.orders);
+  const { active, ready, dueSoon, overview } = metrics;
   const unpaid = active.filter((order) => outstandingAmount(order) > 0);
-  const dueSoon = active
-    .filter((order) => order.latestDeliveryDate)
-    .sort((a, b) => a.latestDeliveryDate.localeCompare(b.latestDeliveryDate))
-    .slice(0, 4);
   const revenue = state.orders.reduce((sum, order) => sum + amountPaid(order), 0);
   const outstanding = active.reduce((sum, order) => sum + outstandingAmount(order), 0);
-  const todayOrders = dailyOrders();
-  const overview = orderOverview(todayOrders);
 
   return `
     ${header(`Good morning, ${escapeHtml(currentUserName())}`, "Tastory OMS", profileButton())}
@@ -791,12 +780,12 @@ function renderDashboard() {
         <div class="mb-4 flex items-end justify-between gap-3">
           <div>
             <h2 class="text-lg font-extrabold text-forest">Order Overview</h2>
-            <p class="text-xs text-stone-500">Today - ${formatDate(localDateKey(), { year: true })}</p>
+            <p class="text-xs text-stone-500">Current operational orders</p>
           </div>
           <button data-nav="summary" class="rounded-xl bg-forest px-3 py-2 text-xs font-extrabold text-white">View All Orders</button>
         </div>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          ${overviewMetric("Total orders today", overview.total, "bg-sage text-forest")}
+          ${overviewMetric("Total current orders", overview.total, "bg-sage text-forest")}
           ${overviewMetric("Pending", overview.pending, "bg-amber-50 text-amber-700")}
           ${overviewMetric("In progress", overview.inProgress, "bg-orange-50 text-orange-700")}
           ${overviewMetric("Completed", overview.completed, "bg-emerald-50 text-emerald-700")}
@@ -1191,10 +1180,10 @@ function renderProduction() {
 }
 
 function renderSummary() {
-  const orders = dailyOrders().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const orders = DASHBOARD_METRICS.operationalOrders(state.orders).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const overview = orderOverview(orders);
   return `
-    ${header("Daily Summary", "Today", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
+    ${header("Order Summary", "Current orders", `<button data-nav="dashboard" class="rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-soft">Back</button>`)}
     <main class="page-enter space-y-5 px-5 md:px-8">
       <section class="grid grid-cols-2 gap-3 sm:grid-cols-5">
         ${overviewMetric("Total", overview.total, "bg-sage text-forest")}
@@ -1219,7 +1208,7 @@ function renderSummary() {
             </div>
             ${order.customerNotes ? `<p class="mt-3 rounded-xl bg-cream p-3 text-xs text-stone-600">${escapeHtml(order.customerNotes)}</p>` : ""}
           </article>
-        `).join("") : emptyState("No orders today", "Daily orders created today will appear here.")}
+        `).join("") : emptyState("No current orders", "Active and recent operational orders will appear here.")}
       </section>
     </main>
   `;

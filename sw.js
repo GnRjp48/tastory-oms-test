@@ -1,4 +1,4 @@
-const CACHE_NAME = "tastory-oms-v6.0.4-direct-auth-reinvitation";
+const CACHE_NAME = "tastory-oms-v6.0.5-dashboard-metrics";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const APP_SHELL = [
   "./ux-access.js",
   "./emergency-mode.js",
   "./backup-manager.js",
+  "./dashboard-metrics.js",
   "./supabase-client.js",
   "./app.js",
   "./manifest.webmanifest",

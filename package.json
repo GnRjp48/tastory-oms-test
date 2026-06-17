@@ -12,6 +12,7 @@
     "test:ux": "node --test tests/ux-access.test.js",
     "test:emergency": "node --test tests/emergency-mode.test.js",
     "test:backup": "node --test tests/backup-manager.test.js",
+    "test:dashboard": "node --test tests/dashboard-metrics.test.js",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset",
